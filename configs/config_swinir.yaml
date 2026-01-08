@@ -1,0 +1,68 @@
+# 1. 模型配置
+model:
+  target: models.network_swinir.SwinIR
+  params:
+    upscale: 3
+    img_size: 192
+    window_size: 8
+    embed_dim: 180
+    depths: [6, 6, 6, 6]
+    num_heads: [6, 6, 6, 6]
+    mlp_ratio: 4
+    upsampler: '' # 适配版模型不使用内部 upsampler
+    resi_connection: '1conv'
+    in_chans: 9
+    out_channels: 3
+
+# 2. 数据配置
+data:
+  train:
+    target: datapipe.datasets.PreprocessedTileDataset
+    params:
+      lr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/train/LR"
+      hr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/train/HR"
+      scale_factor: 3
+  val:
+    target: datapipe.datasets.PreprocessedTileDataset
+    params:
+      lr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/val/LR"
+      hr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/val/HR"
+      need_path: True
+      sample_num: 200
+      scale_factor: 3
+  test:
+    target: datapipe.datasets.PreprocessedTileDataset
+    params:
+      lr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/test/LR" 
+      hr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/test/HR"
+      need_path: True
+      scale_factor: 3
+
+# 3. 训练器配置
+trainer:
+  target: trainer.TrainerAlphaSR
+
+# 4. 训练参数
+train:
+  save_dir: "./training_logs/swinir_3bands_run_1" # SwinIR的独立日志目录
+  batch: [8, 4] # SwinIR模型较大， batch size 可能需要比 SRCNN 更小
+  iterations: 10000
+  lr: 0.0001 
+  lr_schedule: "ReduceLROnPlateau"
+  lr_schedule_params:
+    patience: 5
+    factor: 0.5
+  lr_min: 0.000001
+  weight_decay: 0.0
+  global_seeding: True
+  seed: 42
+  num_workers: 4
+  log_freq: [100, 200, 200]
+  save_freq: 1000
+  val_freq: 500
+  rgb_chn: [0, 1, 2]
+  local_logging: True
+
+# 5. 推理配置
+inference:
+  padding_offset: 16
