@@ -16,7 +16,7 @@ import shutil
 # ==============================================================================
 # 1. 路径和参数定义 (已修改)
 # ==============================================================================
-BASE_DATA_DIR = Path("D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data")
+BASE_DATA_DIR = Path("./data")
 RAW_LANDSAT_DIR = BASE_DATA_DIR / "raw_landsat"
 RAW_ALPHA_DIR = BASE_DATA_DIR / "raw_alphaearth"
 PROCESSED_DATA_ROOT = BASE_DATA_DIR / "processed_data"

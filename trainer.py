@@ -137,6 +137,7 @@ class TrainerBase:
                 self.sampler.set_epoch(ii)
             
             data = self.prepare_data(next(self.dataloaders['train']))
+            # import pdb;pdb.set_trace()
             self.training_step(data)
             
             if 'val' in self.dataloaders and (self.current_iters % self.configs.train.val_freq) == 0:

@@ -12,22 +12,22 @@ data:
   train:
     target: datapipe.datasets.PreprocessedTileDataset
     params:
-      lr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/train/LR"
-      hr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/train/HR"
+      lr_dir: "./data/processed_data/train/LR"
+      hr_dir: "./data/processed_data/train/HR"
       scale_factor: 3
   val:
     target: datapipe.datasets.PreprocessedTileDataset
     params:
-      lr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/val/LR"
-      hr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/val/HR"
+      lr_dir: "./data/processed_data/val/LR"
+      hr_dir: "./data/processed_data/val/HR"
       need_path: True
       sample_num: 200
       scale_factor: 3
   test:
     target: datapipe.datasets.PreprocessedTileDataset
     params:
-      lr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/test/LR" 
-      hr_dir: "D:/Document/VScode/AlphaEarth/download/L1_California/AlphaSR/data/processed_data/test/HR"
+      lr_dir: "./data/processed_data/test/LR" 
+      hr_dir: "./data/processed_data/test/HR"
       need_path: True
       scale_factor: 3
 
@@ -38,7 +38,7 @@ trainer:
 # 4. 训练参数
 train:
   save_dir: "./training_logs/srcnn_b2_3bands_run_1" # SRCNN的独立日志目录
-  batch: [8, 4]
+  batch: [2, 1]
   iterations: 10000
   lr: 0.0001 
   lr_schedule: "ReduceLROnPlateau"
