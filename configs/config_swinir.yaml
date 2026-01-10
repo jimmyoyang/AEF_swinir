@@ -12,7 +12,7 @@ model:
     upsampler: '' # 适配版模型不使用内部 upsampler
     resi_connection: '1conv'
     in_chans: 9
-    out_channels: 3
+    out_channels: 64
 
 # 2. 数据配置
 data:
@@ -56,7 +56,7 @@ train:
   weight_decay: 0.0
   global_seeding: True
   seed: 42
-  num_workers: 4
+  num_workers: 48
   log_freq: [100, 200, 200]
   save_freq: 1000
   val_freq: 500

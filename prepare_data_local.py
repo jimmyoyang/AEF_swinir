@@ -1,5 +1,5 @@
 # 文件路径: prepare_data_local.py
-# (最终健壮版 v2 - 增加独立的 Test 集划分)
+# (最终健壮版 v7 - 修复尺寸不匹配广播错误)
 
 import os
 import rasterio
@@ -12,9 +12,10 @@ import sys
 import matplotlib.pyplot as plt
 import random
 import shutil
+from multiprocessing import Pool, cpu_count
 
 # ==============================================================================
-# 1. 路径和参数定义 (已修改)
+# 1. 路径和参数定义 (保持不变)
 # ==============================================================================
 BASE_DATA_DIR = Path("./data")
 RAW_LANDSAT_DIR = BASE_DATA_DIR / "raw_landsat"
@@ -23,17 +24,20 @@ PROCESSED_DATA_ROOT = BASE_DATA_DIR / "processed_data"
 
 TARGET_DATES = ['2018-01-01', '2018-01-17', '2018-02-02']
 REF_PATH, REF_ROW = 132, 33
-NUM_ALPHA_BANDS_TO_STACK = 3
+
+NUM_ALPHA_BANDS_TO_STACK = 64
 ALPHAEARTH_BANDS_TO_USE = [f'A{i:02d}' for i in range(NUM_ALPHA_BANDS_TO_STACK)]
+
 LR_PATCH_SIZE, SCALE_FACTOR, HR_PATCH_SIZE = 64, 3, 192
 
-# --- 【核心修改】定义三路划分比例 ---
-TRAIN_RATIO = 0.7  # 70% for training
-VAL_RATIO = 0.15   # 15% for validation
-# TEST_RATIO is implicitly 15% (1.0 - 0.7 - 0.15)
+TRAIN_RATIO = 0.7
+VAL_RATIO = 0.15
+RANDOM_SEED = 42
+HR_BAND_REQUIREMENT_RATIO = 1.0
+NUM_WORKERS = 48
 
 # ==============================================================================
-# 2. 交互式调试与可视化函数 (保持不变)
+# 2. 交互式调试与可视化函数 (完整保留)
 # ==============================================================================
 def debug_and_visualize():
     """
@@ -106,155 +110,166 @@ def debug_and_visualize():
         return False
 
 # ==============================================================================
-# 3. 核心批量处理函数 (保持不变)
+# 3. 并行处理的 "工人" 函数 (保持不变)
 # ==============================================================================
-def process_and_tile_pair(landsat_path, alpha_band_paths, save_dir, date_str):
-    """
-    【最终健壮版】对单对 LR/HR 数据进行堆叠、掩码生成和切片。
-    """
-    print(f"\n--- Processing Date: {date_str} ---")
+def create_one_tile(landsat_path, alpha_band_paths, r, c, save_dir, date_str):
     try:
         with rasterio.open(landsat_path) as lr_src:
-            lr_meta, (lr_h, lr_w) = lr_src.meta, (lr_src.height, lr_src.width)
-            
-            with rasterio.open(alpha_band_paths[0]) as first_hr_src:
-                hr_meta, (hr_h, hr_w) = first_hr_src.meta, (first_hr_src.height, first_hr_src.width)
-            # --- 步骤 1: 加载所有数据到内存 ---
-            print("  - Loading all source data into memory...")
-            lr_data_full = lr_src.read()
-            stacked_hr_data = np.zeros((len(alpha_band_paths), hr_h, hr_w), dtype=hr_meta['dtype'])
-            for i, band_path in enumerate(tqdm(alpha_band_paths, desc="    - Stacking HR bands", ncols=100)):
-                with rasterio.open(band_path) as band_src: stacked_hr_data[i, :, :] = band_src.read(1)
+            lr_meta = lr_src.meta
+            lr_transform = lr_src.transform
+            lr_tile = lr_src.read(window=Window(c, r, LR_PATCH_SIZE, LR_PATCH_SIZE))
 
-            if hr_h < lr_h * SCALE_FACTOR or hr_w < lr_w * SCALE_FACTOR:
-                print("  - [WARNING] HR image is smaller than expected. Adjusting LR processing area to match.")
-                lr_h = hr_h // SCALE_FACTOR
-                lr_w = hr_w // SCALE_FACTOR
-                lr_data_full = lr_data_full[:, :lr_h, :lr_w]
-            target_hr_h = lr_h * SCALE_FACTOR
-            target_hr_w = lr_w * SCALE_FACTOR
-            
-            stacked_hr_data = stacked_hr_data[:, :target_hr_h, :target_hr_w]
-            
-            hr_h, hr_w = target_hr_h, target_hr_w
-            
-            print("  - Creating combined valid data mask...")
-            lr_valid_mask = np.all(lr_data_full != 0, axis=0) & ~np.any(np.isnan(lr_data_full), axis=0)
-            hr_valid_mask_full_res = ~np.any(np.isnan(stacked_hr_data), axis=0)
-            hr_valid_mask_lr_res = hr_valid_mask_full_res.reshape(lr_h, SCALE_FACTOR, lr_w, SCALE_FACTOR).mean(axis=(1,3)) > 0.99
-            combined_mask = lr_valid_mask & hr_valid_mask_lr_res
-            
-            tile_count, discarded_count = 0, 0
-            print("  - Tiling within combined valid data area...")
-            for r in tqdm(range(0, lr_h - LR_PATCH_SIZE + 1, LR_PATCH_SIZE), desc="    - Tiling", ncols=100):
-                for c in range(0, lr_w - LR_PATCH_SIZE + 1, LR_PATCH_SIZE):
-                    mask_patch = combined_mask[r:r+LR_PATCH_SIZE, c:c+LR_PATCH_SIZE]
-                    if np.count_nonzero(mask_patch) / mask_patch.size < 0.98:
-                        discarded_count += 1
-                        continue
-                        
-                    lr_tile = lr_data_full[:, r:r+LR_PATCH_SIZE, c:c+LR_PATCH_SIZE]
-                    hr_r, hr_c = r * SCALE_FACTOR, c * SCALE_FACTOR
-                    hr_tile = stacked_hr_data[:, hr_r:hr_r+HR_PATCH_SIZE, hr_c:hr_c+HR_PATCH_SIZE]
-                    
-                    if np.isnan(lr_tile).any() or np.isnan(hr_tile).any():
-                        discarded_count += 1; continue
+        with rasterio.open(alpha_band_paths[0]) as first_hr_src:
+            hr_meta = first_hr_src.meta
+            hr_transform = first_hr_src.transform
 
-                    fname = f"{date_str}_tile_{r//LR_PATCH_SIZE}_{c//LR_PATCH_SIZE}.tif"
-                    lr_tile_meta=lr_meta.copy(); lr_tile_meta.update({'height':LR_PATCH_SIZE,'width':LR_PATCH_SIZE,'transform':rasterio.windows.transform(Window(c,r,LR_PATCH_SIZE,LR_PATCH_SIZE),lr_src.transform)})
-                    with rasterio.open(save_dir/"LR"/fname,'w',**lr_tile_meta) as dst: dst.write(lr_tile)
-                    hr_tile_meta=hr_meta.copy(); hr_tile_meta.update({'count':len(alpha_band_paths),'height':HR_PATCH_SIZE,'width':HR_PATCH_SIZE,'transform':rasterio.windows.transform(Window(hr_c,hr_r,HR_PATCH_SIZE,HR_PATCH_SIZE),first_hr_src.transform)})
-                    with rasterio.open(save_dir/"HR"/fname,'w',**hr_tile_meta) as dst: dst.write(hr_tile)
-                    tile_count += 1
-            
-            print(f"✅ Processing complete: {tile_count} strictly paired tiles saved. {discarded_count} tiles were discarded.")
-    except Exception as e: print(f"❌ CRITICAL ERROR in 'process_and_tile_pair': {e}", file=sys.stderr)
+        if np.isnan(lr_tile).any() or np.all(lr_tile == 0):
+            return False
+
+        hr_tile = np.zeros((len(alpha_band_paths), HR_PATCH_SIZE, HR_PATCH_SIZE), dtype=hr_meta['dtype'])
+        hr_r, hr_c = r * SCALE_FACTOR, c * SCALE_FACTOR
+        
+        for i, band_path in enumerate(alpha_band_paths):
+            with rasterio.open(band_path) as band_src:
+                hr_tile[i, :, :] = band_src.read(1, window=Window(hr_c, hr_r, HR_PATCH_SIZE, HR_PATCH_SIZE))
+
+        if np.isnan(hr_tile).any():
+            return False
+
+        fname = f"{date_str}_tile_{r//LR_PATCH_SIZE}_{c//LR_PATCH_SIZE}.tif"
+        lr_save_path = save_dir / "LR" / fname
+        hr_save_path = save_dir / "HR" / fname
+
+        lr_tile_meta = lr_meta.copy()
+        lr_tile_meta.update({
+            'height': LR_PATCH_SIZE, 'width': LR_PATCH_SIZE,
+            'transform': rasterio.windows.transform(Window(c, r, LR_PATCH_SIZE, LR_PATCH_SIZE), lr_transform)
+        })
+        with rasterio.open(lr_save_path, 'w', **lr_tile_meta) as dst:
+            dst.write(lr_tile)
+
+        hr_tile_meta = hr_meta.copy()
+        hr_tile_meta.update({
+            'count': len(alpha_band_paths), 'height': HR_PATCH_SIZE, 'width': HR_PATCH_SIZE,
+            'transform': rasterio.windows.transform(Window(hr_c, hr_r, HR_PATCH_SIZE, HR_PATCH_SIZE), hr_transform)
+        })
+        with rasterio.open(hr_save_path, 'w', **hr_tile_meta) as dst:
+            dst.write(hr_tile)
+        return True
+    except Exception:
+        return False
 
 # ==============================================================================
-# 4. 主处理与划分函数 (已修改)
+# 4. 主处理与划分函数 (已修复)
 # ==============================================================================
 def main_processing():
-    """
-    采用“先混合，再划分”的科学策略。
-    """
-    print("===== STEP 2: Starting Batch Data Processing (Scientific Split) =====")
-    
     temp_dir = PROCESSED_DATA_ROOT / "all_tiles_temp"
     if temp_dir.exists(): shutil.rmtree(temp_dir)
-    print(f"[INFO] Creating temporary directory: {temp_dir}"); (temp_dir / "LR").mkdir(parents=True); (temp_dir / "HR").mkdir(parents=True)
-    
-    for date_str in [d.replace('-', '') for d in TARGET_DATES]:
-        landsat_f = list(RAW_LANDSAT_DIR.glob(f'L8_{REF_PATH}{REF_ROW}_{date_str}_Masked.tif'))
-        if not landsat_f: print(f"⚠️ Warning: Landsat for {date_str} not found. Skipping."); continue
-        alpha_paths = [list(RAW_ALPHA_DIR.glob(f"AlphaEarth_Path{REF_PATH}_Row{REF_ROW}_reprojected_{b}.tif")) for b in ALPHAEARTH_BANDS_TO_USE]
-        if any(not p for p in alpha_paths): print(f"⚠️ Warning: AlphaEarth for {date_str} not found. Skipping."); continue
-        process_and_tile_pair(landsat_f[0], [p[0] for p in alpha_paths], temp_dir, date_str)
+    (temp_dir / "LR").mkdir(parents=True); (temp_dir / "HR").mkdir(parents=True)
+    print(f"[INFO] Created temporary directory: {temp_dir}")
 
-    print("\n" + "="*80 + "\n===== STEP 3: Randomly Shuffling and Splitting Dataset =====")
+    print("\n===== STEP 2: Generating Task List for Parallel Processing =====")
+    tasks = []
+    for date_str in tqdm([d.replace('-', '') for d in TARGET_DATES], desc="Scanning Dates"):
+        try:
+            landsat_f = list(RAW_LANDSAT_DIR.glob(f'L8_{REF_PATH}{REF_ROW}_{date_str}_Masked.tif'))
+            if not landsat_f: print(f"⚠️ Warning: Landsat for {date_str} not found. Skipping."); continue
+            
+            landsat_path = landsat_f[0]
+            alpha_paths_str = [str(p[0]) for p in [list(RAW_ALPHA_DIR.glob(f"AlphaEarth_Path{REF_PATH}_Row{REF_ROW}_reprojected_{b}.tif")) for b in ALPHAEARTH_BANDS_TO_USE]]
+            if any(not p for p in alpha_paths_str): print(f"⚠️ Warning: Some AlphaEarth bands for {date_str} not found. Skipping."); continue
+
+            with rasterio.open(landsat_path) as lr_src, rasterio.open(alpha_paths_str[0]) as first_hr_src:
+                # 【修复】这里是核心：首先确定最终的处理尺寸
+                lr_h_orig, lr_w_orig = lr_src.height, lr_src.width
+                hr_h_orig, hr_w_orig = first_hr_src.height, first_hr_src.width
+                
+                # 以 HR 影像为基准，反算出 LR 影像应该有的最大尺寸
+                effective_lr_h = hr_h_orig // SCALE_FACTOR
+                effective_lr_w = hr_w_orig // SCALE_FACTOR
+
+                # 取 LR 原始尺寸和反算尺寸中较小的一个，作为最终处理尺寸
+                proc_h = min(lr_h_orig, effective_lr_h)
+                proc_w = min(lr_w_orig, effective_lr_w)
+                
+                # 【修复】读取 LR 数据时，严格使用确定好的处理尺寸
+                lr_data = lr_src.read(window=Window(0, 0, proc_w, proc_h))
+                lr_valid_mask = ~np.any(np.isnan(lr_data), axis=0) & np.all(lr_data != 0, axis=0)
+                
+                valid_band_count = np.zeros((hr_h_orig, hr_w_orig), dtype=np.uint8)
+                for p in alpha_paths_str:
+                    with rasterio.open(p) as band_src:
+                        valid_band_count += (~np.isnan(band_src.read(1))).astype(np.uint8)
+                
+                required_bands = int(NUM_ALPHA_BANDS_TO_STACK * HR_BAND_REQUIREMENT_RATIO)
+                hr_valid_mask_full_res = valid_band_count >= required_bands
+
+                # 【修复】对 HR 掩码也使用严格的处理尺寸进行切片和降采样
+                hr_valid_mask_lr_res = hr_valid_mask_full_res[:proc_h*SCALE_FACTOR, :proc_w*SCALE_FACTOR].reshape(proc_h, SCALE_FACTOR, proc_w, SCALE_FACTOR).all(axis=(1,3))
+                combined_mask = lr_valid_mask & hr_valid_mask_lr_res
+            
+            for r in range(0, proc_h - LR_PATCH_SIZE + 1, LR_PATCH_SIZE):
+                for c in range(0, proc_w - LR_PATCH_SIZE + 1, LR_PATCH_SIZE):
+                    if np.count_nonzero(combined_mask[r:r+LR_PATCH_SIZE, c:c+LR_PATCH_SIZE]) / (LR_PATCH_SIZE**2) >= 0.98:
+                        task_args = (str(landsat_path), alpha_paths_str, r, c, temp_dir, date_str)
+                        tasks.append(task_args)
+        except Exception as e:
+            print(f"❌ CRITICAL ERROR during task generation for date {date_str}: {e}", file=sys.stderr)
+    
+    if not tasks: print("❌ CRITICAL ERROR: No valid tiles found to process. Try lowering HR_BAND_REQUIREMENT_RATIO."); return
+    print(f"\n✅ Task generation complete. Found {len(tasks)} potential tiles to create.")
+
+    print("\n" + "="*80 + f"\n===== STEP 3: Starting Parallel Tiling with {NUM_WORKERS} Cores =====")
+    
+    results = []
+    effective_workers = min(NUM_WORKERS, os.cpu_count()) if NUM_WORKERS > 0 else 1
+    if effective_workers > 1:
+        with Pool(processes=effective_workers) as pool:
+            results = list(tqdm(pool.starmap(create_one_tile, tasks), total=len(tasks), desc="Processing Tiles"))
+    else:
+        results = [create_one_tile(*task) for task in tqdm(tasks, desc="Processing Tiles (Single-threaded)")]
+
+    successful_tiles = sum(1 for r in results if r)
+    print(f"✅ Parallel processing complete. Successfully created {successful_tiles} tiles. {len(tasks) - successful_tiles} tiles failed.")
+
+    print("\n" + "="*80 + "\n===== STEP 4: Randomly Shuffling and Splitting Dataset =====")
     
     all_lr_files = sorted(list((temp_dir / "LR").glob("*.tif")))
-    if not all_lr_files: 
-        print("❌ CRITICAL ERROR: No tiles were generated."); return
-        
-    print(f"[INFO] Total valid tiles generated: {len(all_lr_files)}"); random.shuffle(all_lr_files)
+    if not all_lr_files: print("❌ CRITICAL ERROR: No tiles were actually generated after processing."); return
     
-    # --- 【核心修改】计算三路划分的切分点 ---
+    print(f"[INFO] Total valid tiles to be split: {len(all_lr_files)}")
+    random.seed(RANDOM_SEED); random.shuffle(all_lr_files)
+
     num_files = len(all_lr_files)
     train_end_idx = int(num_files * TRAIN_RATIO)
     val_end_idx = train_end_idx + int(num_files * VAL_RATIO)
     
-    train_files = all_lr_files[:train_end_idx]
-    val_files = all_lr_files[train_end_idx:val_end_idx]
-    test_files = all_lr_files[val_end_idx:] # The rest are for testing
+    train_files = all_lr_files[:train_end_idx]; val_files = all_lr_files[train_end_idx:val_end_idx]; test_files = all_lr_files[val_end_idx:]
 
-    print(f"[INFO] Splitting dataset into:")
-    print(f"  - {len(train_files)} files for training ({TRAIN_RATIO:.0%})")
-    print(f"  - {len(val_files)} files for validation ({VAL_RATIO:.0%})")
-    print(f"  - {len(test_files)} files for testing (~{(1 - TRAIN_RATIO - VAL_RATIO):.0%})")
+    print(f"[INFO] Splitting dataset into:\n  - {len(train_files)} for training\n  - {len(val_files)} for validation\n  - {len(test_files)} for testing")
     
-    # --- 【核心修改】创建所有目标目录 ---
-    train_dir = PROCESSED_DATA_ROOT / "train"
-    val_dir = PROCESSED_DATA_ROOT / "val"
-    test_dir = PROCESSED_DATA_ROOT / "test"  # 新增
+    train_dir = PROCESSED_DATA_ROOT / "train"; val_dir = PROCESSED_DATA_ROOT / "val"; test_dir = PROCESSED_DATA_ROOT / "test"
     
     for d in [train_dir, val_dir, test_dir]:
         if d.exists(): shutil.rmtree(d)
-        (d / "LR").mkdir(parents=True)
-        (d / "HR").mkdir(parents=True)
+        (d / "LR").mkdir(parents=True); (d / "HR").mkdir(parents=True)
         
-    print("\n[INFO] Moving files to final train/val/test directories...")
+    print("\n[INFO] Moving files from temporary directory to final train/val/test directories...")
+    datasets_to_move = {"train": (train_files, train_dir), "val": (val_files, val_dir), "test": (test_files, test_dir)}
     
-    # --- 【核心修改】使用一个通用循环移动所有文件 ---
-    datasets_to_move = {
-        "train": (train_files, train_dir),
-        "val": (val_files, val_dir),
-        "test": (test_files, test_dir)
-    }
-
     for name, (file_list, dest_dir) in datasets_to_move.items():
-        for file_path in tqdm(file_list, desc=f"Moving {name} files", ncols=100):
-            # 确保使用 Path 对象进行操作
-            src_lr_path = Path(file_path)
-            src_hr_path = temp_dir / "HR" / src_lr_path.name
-            
-            dest_lr_path = dest_dir / "LR" / src_lr_path.name
-            dest_hr_path = dest_dir / "HR" / src_lr_path.name
+        for lr_file_path in tqdm(file_list, desc=f"Moving {name} files", ncols=100):
+            hr_file_path = temp_dir / "HR" / lr_file_path.name
+            dest_lr_path = dest_dir / "LR" / lr_file_path.name
+            dest_hr_path = dest_dir / "HR" / lr_file_path.name
+            shutil.move(str(lr_file_path), str(dest_lr_path))
+            shutil.move(str(hr_file_path), str(dest_hr_path))
 
-            # 使用 shutil.move，它对于 Path 对象同样有效
-            shutil.move(str(src_lr_path), str(dest_lr_path))
-            shutil.move(str(src_hr_path), str(dest_hr_path))
-            
     print("\n[INFO] Cleaning up temporary directory..."); shutil.rmtree(temp_dir)
     print("\n✅ All data preprocessing and splitting (train/val/test) is complete.")
 
-# ==============================================================================
-# 5. 脚本执行入口 (保持不变)
-# ==============================================================================
 def run_interactive_mode():
-    if debug_and_visualize():
-        main_processing()
-    else:
-        print("[INFO] User aborted. No batch processing will be performed.")
+    main_processing()
 
 if __name__ == '__main__':
     run_interactive_mode()

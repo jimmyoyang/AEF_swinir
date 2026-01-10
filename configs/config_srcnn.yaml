@@ -1,3 +1,4 @@
+
 # 1. 模型配置
 model:
   target: models.model_b2.SRCNN_B2
@@ -5,7 +6,7 @@ model:
     in_channels: 9
     out_channels: 3
     # 理论上SRCNN不需要scale_factor，但为了统一，可以保留
-    scale_factor: 3
+    # scale_factor: 3
 
 # 2. 数据配置
 data:
@@ -14,7 +15,7 @@ data:
     params:
       lr_dir: "./data/processed_data/train/LR"
       hr_dir: "./data/processed_data/train/HR"
-      scale_factor: 3
+      # scale_factor: 3
   val:
     target: datapipe.datasets.PreprocessedTileDataset
     params:
@@ -22,14 +23,14 @@ data:
       hr_dir: "./data/processed_data/val/HR"
       need_path: True
       sample_num: 200
-      scale_factor: 3
+      # scale_factor: 3
   test:
     target: datapipe.datasets.PreprocessedTileDataset
     params:
       lr_dir: "./data/processed_data/test/LR" 
       hr_dir: "./data/processed_data/test/HR"
       need_path: True
-      scale_factor: 3
+      # scale_factor: 3
 
 # 3. 训练器配置
 trainer:
