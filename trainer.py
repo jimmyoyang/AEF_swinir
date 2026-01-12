@@ -70,6 +70,11 @@ class TrainerBase:
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.configs.train.lr, weight_decay=self.configs.train.get('weight_decay', 0))
 
     def build_dataloader(self):
+        """Build dataloader for training and validation."""
+        # --- 【在这里添加诊断代码】---
+        print("--- [DIAGNOSIS] Printing configuration passed to the 'train' dataset: ---")
+        print(self.configs.data.train)
+        # --- 【诊断代码结束】---
         def _wrap(loader):
             while True: yield from loader
         

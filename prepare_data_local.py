@@ -1,6 +1,7 @@
 # 文件路径: prepare_data_local.py
-# (最终健壮版 v7 - 修复尺寸不匹配广播错误)
+# (最终健壮版 - 修复了TARGET_DATES引用错误)
 
+import re
 import os
 import rasterio
 import numpy as np
@@ -22,14 +23,13 @@ RAW_LANDSAT_DIR = BASE_DATA_DIR / "raw_landsat"
 RAW_ALPHA_DIR = BASE_DATA_DIR / "raw_alphaearth"
 PROCESSED_DATA_ROOT = BASE_DATA_DIR / "processed_data"
 
-TARGET_DATES = ['2018-01-01', '2018-01-17', '2018-02-02']
-REF_PATH, REF_ROW = 132, 33
+# TARGET_DATES 列表不再需要，已被注释
+# TARGET_DATES = ['2018-01-01', '2018-01-17', '2018-02-02']
 
+REF_PATH, REF_ROW = 132, 33
 NUM_ALPHA_BANDS_TO_STACK = 64
 ALPHAEARTH_BANDS_TO_USE = [f'A{i:02d}' for i in range(NUM_ALPHA_BANDS_TO_STACK)]
-
 LR_PATCH_SIZE, SCALE_FACTOR, HR_PATCH_SIZE = 64, 3, 192
-
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.15
 RANDOM_SEED = 42
@@ -37,7 +37,7 @@ HR_BAND_REQUIREMENT_RATIO = 1.0
 NUM_WORKERS = 48
 
 # ==============================================================================
-# 2. 交互式调试与可视化函数 (完整保留)
+# 2. 交互式调试与可视化函数 (已修复)
 # ==============================================================================
 def debug_and_visualize():
     """
@@ -48,15 +48,29 @@ def debug_and_visualize():
     DEBUG_TILE_ROW_INDEX, DEBUG_TILE_COL_INDEX = 30, 30
     
     try:
-        test_date_str = TARGET_DATES[0].replace('-', '')
-        print(f"[INFO] Using test date: {TARGET_DATES[0]}")
+        # --- 【代码修改开始】 ---
+        # 动态发现第一个可用日期用于调试，不再依赖 TARGET_DATES
+        all_landsat_files = sorted(RAW_LANDSAT_DIR.glob(f'L8_{REF_PATH}{REF_ROW}_*_Masked.tif'))
+        if not all_landsat_files:
+            print(f"❌ CRITICAL ERROR in debug: 在 {RAW_LANDSAT_DIR} 目录下未找到任何Landsat文件。", file=sys.stderr)
+            return False
         
-        landsat_file = list(RAW_LANDSAT_DIR.glob(f'L8_{REF_PATH}{REF_ROW}_{test_date_str}_Masked.tif'))[0]
+        first_landsat_file = all_landsat_files[0]
+        match = re.search(r'_(\d{8})_', first_landsat_file.name)
+        if not match:
+            print(f"❌ CRITICAL ERROR in debug: 无法从文件名 {first_landsat_file.name} 中提取日期", file=sys.stderr)
+            return False
+            
+        test_date_str = match.group(1)
+        test_date_for_print = f"{test_date_str[:4]}-{test_date_str[4:6]}-{test_date_str[6:]}"
+        print(f"[INFO] Using first discovered date for debug: {test_date_for_print}")
+        # --- 【代码修改结束】 ---
+        
         alpha_paths = sorted([list(RAW_ALPHA_DIR.glob(f"AlphaEarth_Path{REF_PATH}_Row{REF_ROW}_reprojected_{b}.tif"))[0] for b in ALPHAEARTH_BANDS_TO_USE])
         
-        print(f"[INFO] Found LR image: {landsat_file.name}")
+        print(f"[INFO] Found LR image: {first_landsat_file.name}")
         
-        with rasterio.open(landsat_file) as lr_src, rasterio.open(alpha_paths[0]) as first_hr_src:
+        with rasterio.open(first_landsat_file) as lr_src, rasterio.open(alpha_paths[0]) as first_hr_src:
             lr_meta, (lr_h, lr_w) = lr_src.meta, (lr_src.height, lr_src.width)
             hr_meta, (hr_h, hr_w) = first_hr_src.meta, (first_hr_src.height, first_hr_src.width)
             
@@ -76,6 +90,8 @@ def debug_and_visualize():
             hr_tile = stacked_hr_data[:, hr_win.row_off:hr_win.row_off+hr_win.height, hr_win.col_off:hr_win.col_off+hr_win.width]
             
             print(f"[DEBUG] Cropped LR tile shape: {lr_tile.shape}, Cropped HR tile shape: {hr_tile.shape}")
+        
+        # ... (可视化的其余部分保持不变) ...
         fig, axes = plt.subplots(2, 3, figsize=(18, 11))
         fig.suptitle(f"Debug Visualization for Tile (R:{DEBUG_TILE_ROW_INDEX}, C:{DEBUG_TILE_COL_INDEX})", fontsize=16)
         def normalize(band): return (band - np.nanmin(band)) / (np.nanmax(band) - np.nanmin(band)) if (np.nanmax(band) - np.nanmin(band)) > 0 else band
@@ -107,7 +123,10 @@ def debug_and_visualize():
         
     except Exception as e:
         print(f"❌ CRITICAL ERROR during debug phase: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         return False
+
 
 # ==============================================================================
 # 3. 并行处理的 "工人" 函数 (保持不变)
@@ -118,28 +137,22 @@ def create_one_tile(landsat_path, alpha_band_paths, r, c, save_dir, date_str):
             lr_meta = lr_src.meta
             lr_transform = lr_src.transform
             lr_tile = lr_src.read(window=Window(c, r, LR_PATCH_SIZE, LR_PATCH_SIZE))
-
         with rasterio.open(alpha_band_paths[0]) as first_hr_src:
             hr_meta = first_hr_src.meta
             hr_transform = first_hr_src.transform
-
         if np.isnan(lr_tile).any() or np.all(lr_tile == 0):
             return False
-
         hr_tile = np.zeros((len(alpha_band_paths), HR_PATCH_SIZE, HR_PATCH_SIZE), dtype=hr_meta['dtype'])
         hr_r, hr_c = r * SCALE_FACTOR, c * SCALE_FACTOR
         
         for i, band_path in enumerate(alpha_band_paths):
             with rasterio.open(band_path) as band_src:
                 hr_tile[i, :, :] = band_src.read(1, window=Window(hr_c, hr_r, HR_PATCH_SIZE, HR_PATCH_SIZE))
-
         if np.isnan(hr_tile).any():
             return False
-
         fname = f"{date_str}_tile_{r//LR_PATCH_SIZE}_{c//LR_PATCH_SIZE}.tif"
         lr_save_path = save_dir / "LR" / fname
         hr_save_path = save_dir / "HR" / fname
-
         lr_tile_meta = lr_meta.copy()
         lr_tile_meta.update({
             'height': LR_PATCH_SIZE, 'width': LR_PATCH_SIZE,
@@ -147,7 +160,6 @@ def create_one_tile(landsat_path, alpha_band_paths, r, c, save_dir, date_str):
         })
         with rasterio.open(lr_save_path, 'w', **lr_tile_meta) as dst:
             dst.write(lr_tile)
-
         hr_tile_meta = hr_meta.copy()
         hr_tile_meta.update({
             'count': len(alpha_band_paths), 'height': HR_PATCH_SIZE, 'width': HR_PATCH_SIZE,
@@ -170,7 +182,28 @@ def main_processing():
 
     print("\n===== STEP 2: Generating Task List for Parallel Processing =====")
     tasks = []
-    for date_str in tqdm([d.replace('-', '') for d in TARGET_DATES], desc="Scanning Dates"):
+    
+    # --- 【代码修改部分 1】 ---
+    # 从文件名动态发现所有Landsat日期
+    all_landsat_files = sorted(RAW_LANDSAT_DIR.glob(f'L8_{REF_PATH}{REF_ROW}_*_Masked.tif'))
+    if not all_landsat_files:
+        print(f"❌ CRITICAL ERROR: 在 {RAW_LANDSAT_DIR} 目录下未找到 P{REF_PATH}R{REF_ROW} 的Landsat文件。", file=sys.stderr)
+        return
+        
+    target_dates_from_files = []
+    for f in all_landsat_files:
+        # 从文件名 'L8_132033_20180101_Masked.tif' 中提取 '20180101'
+        match = re.search(r'_(\d{8})_', f.name)
+        if match:
+            target_dates_from_files.append(match.group(1))
+    
+    print(f"[INFO] 从Landsat文件名中发现 {len(target_dates_from_files)} 个唯一日期进行处理。")
+    # --- 【代码修改部分 1 结束】 ---
+    
+    # --- 【代码修改部分 2】 ---
+    # 使用我们动态发现的日期列表(target_dates_from_files)，而不是固定的TARGET_DATES
+    for date_str in tqdm(target_dates_from_files, desc="Scanning Dates"):
+    # --- 【代码修改部分 2 结束】 ---
         try:
             landsat_f = list(RAW_LANDSAT_DIR.glob(f'L8_{REF_PATH}{REF_ROW}_{date_str}_Masked.tif'))
             if not landsat_f: print(f"⚠️ Warning: Landsat for {date_str} not found. Skipping."); continue
@@ -187,7 +220,6 @@ def main_processing():
                 # 以 HR 影像为基准，反算出 LR 影像应该有的最大尺寸
                 effective_lr_h = hr_h_orig // SCALE_FACTOR
                 effective_lr_w = hr_w_orig // SCALE_FACTOR
-
                 # 取 LR 原始尺寸和反算尺寸中较小的一个，作为最终处理尺寸
                 proc_h = min(lr_h_orig, effective_lr_h)
                 proc_w = min(lr_w_orig, effective_lr_w)
@@ -203,7 +235,6 @@ def main_processing():
                 
                 required_bands = int(NUM_ALPHA_BANDS_TO_STACK * HR_BAND_REQUIREMENT_RATIO)
                 hr_valid_mask_full_res = valid_band_count >= required_bands
-
                 # 【修复】对 HR 掩码也使用严格的处理尺寸进行切片和降采样
                 hr_valid_mask_lr_res = hr_valid_mask_full_res[:proc_h*SCALE_FACTOR, :proc_w*SCALE_FACTOR].reshape(proc_h, SCALE_FACTOR, proc_w, SCALE_FACTOR).all(axis=(1,3))
                 combined_mask = lr_valid_mask & hr_valid_mask_lr_res
@@ -239,13 +270,12 @@ def main_processing():
     
     print(f"[INFO] Total valid tiles to be split: {len(all_lr_files)}")
     random.seed(RANDOM_SEED); random.shuffle(all_lr_files)
-
+    
     num_files = len(all_lr_files)
     train_end_idx = int(num_files * TRAIN_RATIO)
     val_end_idx = train_end_idx + int(num_files * VAL_RATIO)
     
     train_files = all_lr_files[:train_end_idx]; val_files = all_lr_files[train_end_idx:val_end_idx]; test_files = all_lr_files[val_end_idx:]
-
     print(f"[INFO] Splitting dataset into:\n  - {len(train_files)} for training\n  - {len(val_files)} for validation\n  - {len(test_files)} for testing")
     
     train_dir = PROCESSED_DATA_ROOT / "train"; val_dir = PROCESSED_DATA_ROOT / "val"; test_dir = PROCESSED_DATA_ROOT / "test"
@@ -268,7 +298,18 @@ def main_processing():
     print("\n[INFO] Cleaning up temporary directory..."); shutil.rmtree(temp_dir)
     print("\n✅ All data preprocessing and splitting (train/val/test) is complete.")
 
+# ==============================================================================
+# 5. 主执行函数 (修改以决定是否进入调试模式)
+# ==============================================================================
 def run_interactive_mode():
+    """
+    根据用户输入决定是否先进入调试模式。
+    """
+    # 默认不再强制进入调试模式，直接处理
+    # 如果需要调试，可以取消下面三行注释
+    if not debug_and_visualize():
+        print("🛑 Processing aborted by user.")
+        return
     main_processing()
 
 if __name__ == '__main__':

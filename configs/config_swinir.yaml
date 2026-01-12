@@ -11,33 +11,44 @@ model:
     mlp_ratio: 4
     upsampler: '' # 适配版模型不使用内部 upsampler
     resi_connection: '1conv'
+    # --- 【修改】 ---
+    # 20张影像 * 每张9个波段 = 180个输入通道  3张则为 27个输入通道
+    # 这个值必须与 TemporalTileDataset 中堆叠后的通道数完全匹配
     in_chans: 9
     out_channels: 64
 
 # 2. 数据配置
 data:
   train:
-    target: datapipe.datasets.PreprocessedTileDataset
+    # target: datapipe.datasets.PreprocessedTileDataset
+    target: datapipe.datasets.TemporalTileDataset # 使用新的时序数据集
     params:
       lr_dir: "./data/processed_data/train/LR"
       hr_dir: "./data/processed_data/train/HR"
       scale_factor: 3
+     # --- 【请在这里添加】 ---
+      num_lr_bands: 3
   val:
-    target: datapipe.datasets.PreprocessedTileDataset
+    # target: datapipe.datasets.PreprocessedTileDataset
+    target: datapipe.datasets.TemporalTileDataset # 使用新的时序数据集
     params:
       lr_dir: "./data/processed_data/val/LR"
       hr_dir: "./data/processed_data/val/HR"
       need_path: True
       sample_num: 200
       scale_factor: 3
+     # --- 【请在这里添加】 ---
+      num_lr_bands: 3
   test:
-    target: datapipe.datasets.PreprocessedTileDataset
+    # target: datapipe.datasets.PreprocessedTileDataset
+    target: datapipe.datasets.TemporalTileDataset # 使用新的时序数据集
     params:
       lr_dir: "./data/processed_data/test/LR" 
       hr_dir: "./data/processed_data/test/HR"
       need_path: True
       scale_factor: 3
-
+     # --- 【请在这里添加】 ---
+      num_lr_bands: 3
 # 3. 训练器配置
 trainer:
   target: trainer.TrainerAlphaSR
