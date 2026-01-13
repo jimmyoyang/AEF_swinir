@@ -53,6 +53,32 @@ class TemporalTileDataset(torch.utils.data.Dataset):
         self.scale_factor = params.get('scale_factor', 3)
         self.num_lr_bands = params['num_lr_bands']
         self.is_debug = params.get('is_debug', False)
+        
+        # 2. 初始化 CCDC 配置（如果启用）
+        self.ccdc_config = params.get('ccdc_config', None)
+        self.use_ccdc = self.ccdc_config is not None and self.ccdc_config.get('enabled', False)
+        if self.use_ccdc:
+            # 确定 CCDC 特征目录（相对于 lr_dir）
+            ccdc_base_dir = Path(self.ccdc_config.get('ccdc_dir', './data/ccdc_features'))
+            # 从 lr_dir 推断是 train/val/test
+            lr_dir_str = str(self.lr_dir)
+            if 'train' in lr_dir_str:
+                self.ccdc_dir = ccdc_base_dir / 'train' / 'LR'
+            elif 'val' in lr_dir_str:
+                self.ccdc_dir = ccdc_base_dir / 'val' / 'LR'
+            elif 'test' in lr_dir_str:
+                self.ccdc_dir = ccdc_base_dir / 'test' / 'LR'
+            else:
+                # 默认使用与 lr_dir 相同的相对路径
+                self.ccdc_dir = ccdc_base_dir / Path(self.lr_dir).relative_to(Path(self.lr_dir).parents[2]) if len(Path(self.lr_dir).parts) > 2 else ccdc_base_dir
+            
+            # 计算 CCDC 特征通道数
+            bands_to_process = self.ccdc_config.get('bands_to_process', {})
+            coeffs_to_extract = self.ccdc_config.get('coeffs_to_extract', [])
+            self.ccdc_num_channels = len(bands_to_process) * len(coeffs_to_extract)
+            print(f"[Dataset INFO] CCDC features enabled. Channels: {self.ccdc_num_channels}, Directory: {self.ccdc_dir}")
+        else:
+            self.ccdc_num_channels = 0
 
         # 2. 扫描整个LR目录，发现所有唯一的日期（时相）
         # 无论在哪种模式下，这都是必需的，以确保通道数一致
@@ -92,7 +118,9 @@ class TemporalTileDataset(torch.utils.data.Dataset):
             print(f"[Dataset INFO] Initialized in NORMAL mode. Found {len(self.target_files)} target HR images.")
 
         print(f"      -> Found {len(self.sorted_dates)} unique time steps (dates).")
-        print(f"      -> Model `in_chans` should be: {len(self.sorted_dates)} * {self.num_lr_bands} = {len(self.sorted_dates) * self.num_lr_bands}")
+        base_channels = len(self.sorted_dates) * self.num_lr_bands
+        total_channels = base_channels + self.ccdc_num_channels
+        print(f"      -> Model `in_chans` should be: {base_channels} (temporal) + {self.ccdc_num_channels} (CCDC) = {total_channels}")
 
     def __len__(self):
         return len(self.target_files)
@@ -146,7 +174,62 @@ class TemporalTileDataset(torch.utils.data.Dataset):
         # 4. 沿通道维度拼接
         stacked_lr_tensor = torch.cat(lr_stack, dim=0)
 
-        # 5. 插值到HR尺寸
+        # 5. 加载 CCDC 特征（如果启用）
+        if self.use_ccdc:
+            # 查找对应的 CCDC 特征文件
+            # CCDC 文件名格式: {tile_id}_ccdc_features.tif (与 ccdc_class.py 中的保存格式一致)
+            ccdc_filename = f"{tile_id}_ccdc_features.tif"
+            ccdc_path = self.ccdc_dir / ccdc_filename
+            
+            if ccdc_path.exists():
+                try:
+                    with rasterio.open(ccdc_path) as src:
+                        ccdc_features = src.read()  # (C, H, W)
+                    # 转换为 torch tensor 并归一化（CCDC 特征通常在合理范围内，但需要归一化到 [-1, 1]）
+                    ccdc_tensor = torch.from_numpy(ccdc_features.astype(np.float32))
+                    # 对每个通道进行归一化（使用分位数归一化）
+                    for c in range(ccdc_tensor.shape[0]):
+                        channel_data = ccdc_tensor[c]
+                        p1, p99 = torch.quantile(channel_data, torch.tensor([0.01, 0.99]))
+                        if p99 > p1:
+                            ccdc_tensor[c] = torch.clamp((channel_data - p1) / (p99 - p1) * 2 - 1, -1.0, 1.0)
+                        else:
+                            ccdc_tensor[c] = torch.zeros_like(channel_data)
+                    
+                    # 插值到 HR 尺寸
+                    ccdc_tensor = torch.nn.functional.interpolate(
+                        ccdc_tensor.unsqueeze(0),
+                        size=(hr_tensor.shape[1], hr_tensor.shape[2]),
+                        mode='bicubic',
+                        align_corners=False
+                    ).squeeze(0)
+                    
+                    # 与原始时序数据拼接
+                    stacked_lr_tensor = torch.cat([stacked_lr_tensor, ccdc_tensor], dim=0)
+                except Exception as e:
+                    print(f"[WARNING] Failed to load CCDC features from {ccdc_path}: {e}. Using zero padding.")
+                    # 如果加载失败，使用零填充
+                    ccdc_tensor = torch.zeros((self.ccdc_num_channels, h, w), dtype=torch.float32)
+                    ccdc_tensor = torch.nn.functional.interpolate(
+                        ccdc_tensor.unsqueeze(0),
+                        size=(hr_tensor.shape[1], hr_tensor.shape[2]),
+                        mode='bicubic',
+                        align_corners=False
+                    ).squeeze(0)
+                    stacked_lr_tensor = torch.cat([stacked_lr_tensor, ccdc_tensor], dim=0)
+            else:
+                # 如果 CCDC 文件不存在，使用零填充
+                print(f"[WARNING] CCDC feature file not found: {ccdc_path}. Using zero padding.")
+                ccdc_tensor = torch.zeros((self.ccdc_num_channels, h, w), dtype=torch.float32)
+                ccdc_tensor = torch.nn.functional.interpolate(
+                    ccdc_tensor.unsqueeze(0),
+                    size=(hr_tensor.shape[1], hr_tensor.shape[2]),
+                    mode='bicubic',
+                    align_corners=False
+                ).squeeze(0)
+                stacked_lr_tensor = torch.cat([stacked_lr_tensor, ccdc_tensor], dim=0)
+
+        # 6. 插值到HR尺寸
         input_tensor = torch.nn.functional.interpolate(
             stacked_lr_tensor.unsqueeze(0), 
             size=(hr_tensor.shape[1], hr_tensor.shape[2]), 
@@ -154,7 +237,7 @@ class TemporalTileDataset(torch.utils.data.Dataset):
             align_corners=False
         ).squeeze(0)
         
-        # 6. 组装样本
+        # 7. 组装样本
         sample = {'s1': input_tensor, 'gt': hr_tensor.clamp(-1.0, 1.0)}
         if self.need_path:
             sample['path'] = str(target_hr_path)
@@ -164,9 +247,13 @@ class TemporalTileDataset(torch.utils.data.Dataset):
 # ==============================================================================
 # 3. 数据集创建函数
 # ==============================================================================
-def create_dataset(configs):
+def create_dataset(configs, parent_configs=None):
     """
     根据配置动态创建数据集实例。
+    
+    Args:
+        configs: 数据集配置（包含 target 和 params）
+        parent_configs: 父级配置对象（可选，用于获取 CCDC 等全局配置）
     """
     target_class_str = configs['target']
     # 动态地从字符串获取类定义
@@ -179,8 +266,13 @@ def create_dataset(configs):
     else:
         # 如果在其他模块，使用 util_common
         target_class = util_common.get_obj_from_str(target_class_str)
-        
-    return target_class(**configs.get('params', {}))
+    
+    # 合并 params 和 CCDC 配置（如果存在）
+    params = dict(configs.get('params', {}))
+    if parent_configs and hasattr(parent_configs, 'ccdc') and parent_configs.ccdc.get('enabled', False):
+        params['ccdc_config'] = dict(parent_configs.ccdc)
+    
+    return target_class(**params)
 
 
 # class PreprocessedTileDataset(torch.utils.data.Dataset):

@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from datetime import datetime
 from multiprocessing import Pool, cpu_count
@@ -11,6 +12,15 @@ from tqdm import tqdm
 # ==============================================================================
 # 1. 核心处理函数 (保持为顶层函数，以便多进程调用)
 # ==============================================================================
+
+def _process_pixel_task_with_coords(args):
+    """
+    对单个像素的时序数据运行CCDC并返回特征向量和坐标。
+    这是一个独立的函数，以便multiprocessing可以轻松地序列化(pickle)它。
+    """
+    (r, c), pixel_ts_data, observation_dates, band_map, coeffs_to_extract = args
+    result = _process_pixel_task((pixel_ts_data, observation_dates, band_map, coeffs_to_extract))
+    return (r, c), result
 
 def _process_pixel_task(args):
     """
@@ -130,29 +140,32 @@ class CCDCFeatureExtractor:
         height, width, _, _ = time_series_data.shape
         if verbose: print(f"[INFO] 数据加载完成. 维度: (H={height}, W={width}, T={len(observation_dates)}).")
 
-        # 2. 准备并行任务
+        # 2. 准备并行任务（包含像素坐标以确保顺序正确）
         tasks = [
-            (time_series_data[r, c, :, :], observation_dates, self.band_map, self.coeffs_to_extract)
+            ((r, c), time_series_data[r, c, :, :], observation_dates, self.band_map, self.coeffs_to_extract)
             for r in range(height) for c in range(width)
         ]
 
         # 3. 执行CCDC计算
-        results = []
         desc = f"CCDC on {height}x{width} pixels"
         if self.use_multiprocessing:
             if verbose: print(f"[INFO] 使用 {self.num_workers} 个CPU核心进行并行计算...")
             with Pool(processes=self.num_workers) as pool:
-                results = list(tqdm(pool.imap_unordered(_process_pixel_task, tasks), total=len(tasks), desc=desc))
+                # 使用 imap 而不是 imap_unordered 以保持顺序
+                results_dict = {}
+                for (r, c), result in tqdm(pool.imap(_process_pixel_task_with_coords, tasks), total=len(tasks), desc=desc):
+                    results_dict[(r, c)] = result
         else:
             if verbose: print("[INFO] 使用单核心进行计算...")
+            results_dict = {}
             for task in tqdm(tasks, desc=desc):
-                results.append(_process_pixel_task(task))
+                (r, c), result = _process_pixel_task_with_coords(task)
+                results_dict[(r, c)] = result
         
-        # 4. 将结果重塑为图像
-        # imap_unordered返回的结果顺序是混乱的，需要一个更健壮的方法来重组。
-        # 这里为了简化，我们先假设返回顺序大部分情况是一致的，然后重塑。
-        # 一个更健壮的方法是在任务中包含像素坐标(r, c)，并在结果中返回它们。
-        ccdc_feature_image = np.array(results).reshape(height, width, self.num_output_channels)
+        # 4. 将结果重塑为图像（按坐标顺序）
+        ccdc_feature_image = np.zeros((height, width, self.num_output_channels), dtype=np.float32)
+        for (r, c), result in results_dict.items():
+            ccdc_feature_image[r, c, :] = result
         
         if verbose: print("[INFO] CCDC特征提取完成。")
         return ccdc_feature_image, reference_ds
@@ -191,10 +204,13 @@ def run_ccdc_workflow(raw_data_dir, output_dir, bands_config, coeffs_config, use
             
         tiles = {}
         for f in all_files:
-            # 假设ID格式为 'tile_001_...' 或 'someprefix_001_...'
-            tile_id = "_".join(f.split('_')[:2]) 
-            if tile_id not in tiles: tiles[tile_id] = []
-            tiles[tile_id].append(os.path.join(raw_data_dir, f))
+            # 提取瓦片ID，格式应该与数据集中的格式一致: tile_(\d+_\d+)
+            # 例如: 20230101_tile_001_002.tif -> tile_id = "001_002"
+            match = re.search(r'tile_(\d+_\d+)\.tif', f)
+            if match:
+                tile_id = match.group(1)
+                if tile_id not in tiles: tiles[tile_id] = []
+                tiles[tile_id].append(os.path.join(raw_data_dir, f))
     except FileNotFoundError:
         print(f"[ERROR] 原始数据目录不存在: {raw_data_dir}")
         return
@@ -236,43 +252,4 @@ def run_ccdc_workflow(raw_data_dir, output_dir, bands_config, coeffs_config, use
     print("="*60)
 
 
-# ==============================================================================
-# 4. 执行入口
-# ==============================================================================
-
-if __name__ == '__main__':
-    # --- 在这里配置您的参数 ---
-    
-    # 原始时序影像所在的目录
-    # 例如：r"D:\my_project\data\raw\train\LR"
-    RAW_DIR = "./data/raw_timeseries/train/LR"
-    
-    # 您希望保存CCDC特征图像的目录
-    # 例如：r"D:\my_project\data\features\train\LR"
-    OUTPUT_DIR = "./data/ccdc_features/train/LR"
-
-    # 定义您要处理的波段及其在TIF文件中的索引（从0开始）
-    BANDS = {
-        "blue": 0, 
-        "green": 1, 
-        "red": 2, 
-        # "nir": 3,
-        # ... 根据您的实际情况添加或修改
-    }
-
-    # 定义您要提取的CCDC谐波系数
-    # 'a0'是截距, 'a1'/'b1'是一阶谐波, 'c1'是线性斜率
-    COEFFS = ['a0', 'a1', 'b1']
-    
-    # 决定是否使用多进程加速
-    USE_PARALLEL = True
-
-    # --- 执行工作流 ---
-    run_ccdc_workflow(
-        raw_data_dir=RAW_DIR,
-        output_dir=OUTPUT_DIR,
-        bands_config=BANDS,
-        coeffs_config=COEFFS,
-        use_multiprocessing=USE_PARALLEL
-    )
 

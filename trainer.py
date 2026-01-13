@@ -63,6 +63,19 @@ class TrainerBase:
         if self.rank == 0: self.logger.info(OmegaConf.to_yaml(self.configs))
 
     def build_model(self):
+        # 如果启用了 CCDC，需要先创建数据集以获取实际通道数
+        # 然后更新模型配置中的 in_chans
+        if hasattr(self.configs, 'ccdc') and self.configs.ccdc.get('enabled', False):
+            # 创建临时数据集以获取实际通道数
+            temp_dataset = create_dataset(self.configs.data.train, parent_configs=self.configs)
+            # 获取一个样本以确定实际通道数
+            sample = temp_dataset[0]
+            actual_in_chans = sample['s1'].shape[0]
+            # 更新模型配置
+            if self.rank == 0:
+                print(f"[INFO] CCDC enabled. Updating model in_chans from {self.configs.model.params.in_chans} to {actual_in_chans}")
+            self.configs.model.params.in_chans = actual_in_chans
+        
         self.model = util_common.instantiate_from_config(self.configs.model).cuda()
         if self.num_gpus > 1: self.model = DDP(self.model, device_ids=[self.rank])
 
@@ -78,8 +91,10 @@ class TrainerBase:
         def _wrap(loader):
             while True: yield from loader
         
-        datasets = {'train': create_dataset(self.configs.data.train)}
-        if hasattr(self.configs.data, 'val') and self.rank == 0: datasets['val'] = create_dataset(self.configs.data.val)
+        # 传递完整配置以支持 CCDC 等全局配置
+        datasets = {'train': create_dataset(self.configs.data.train, parent_configs=self.configs)}
+        if hasattr(self.configs.data, 'val') and self.rank == 0: 
+            datasets['val'] = create_dataset(self.configs.data.val, parent_configs=self.configs)
         if self.rank == 0: [self.logger.info(f'Images in {p} set: {len(d)}') for p, d in datasets.items()]
         
         sampler = udata.distributed.DistributedSampler(datasets['train'], num_replicas=self.num_gpus, rank=self.rank) if self.num_gpus > 1 else None
@@ -127,6 +142,9 @@ class TrainerBase:
 
     def train(self):
         self.init_logger()
+        # 注意：build_dataloader 需要在 build_model 之前调用（如果启用 CCDC），
+        # 以便获取实际通道数。但为了保持兼容性，我们先尝试构建模型，如果需要再调整。
+        # 如果启用 CCDC，build_model 会创建临时数据集来获取通道数
         self.build_model()
         self.setup_optimizaton()
         self.resume_from_ckpt()

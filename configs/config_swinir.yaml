@@ -12,12 +12,17 @@ model:
     upsampler: '' # 适配版模型不使用内部 upsampler
     resi_connection: '1conv'
     # --- 【修改】 ---
-    # 20张影像 * 每张9个波段 = 180个输入通道  3张则为 27个输入通道
-    # 这个值必须与 TemporalTileDataset 中堆叠后的通道数完全匹配
-    in_chans: 180 
+    # 输入通道数 = 时相数量 * 每张9个波段 + CCDC特征通道数（如果启用）
+    # 例如：20个时相 * 9个波段 = 180个输入通道
+    # 注意：如果启用 CCDC，模型会自动根据数据集的实际通道数调整 in_chans
+    # 如果未启用 CCDC，请确保此值与数据集的实际通道数匹配
+    in_chans: 180  # 默认值，实际会根据数据集自动调整（如果启用 CCDC） 
     out_channels: 64
 
 # 2. 数据配置
+# LR输入: Landsat 8 TOA 影像，9个波段 ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B10', 'B11']
+# 波段索引映射: B2(0)=Blue, B3(1)=Green, B4(2)=Red, B5(3)=NIR, B6(4)=SWIR1, B7(5)=SWIR2, B8(6)=Pan, B10(7)=TIRS1, B11(8)=TIRS2
+# HR输入: AlphaEarth 影像，全年64个时相
 data:
   train:
     # target: datapipe.datasets.PreprocessedTileDataset
@@ -26,8 +31,7 @@ data:
       lr_dir: "./data/processed_data/train/LR"
       hr_dir: "./data/processed_data/train/HR"
       scale_factor: 3
-     # --- 【请在这里添加】 ---
-      num_lr_bands: 9
+      num_lr_bands: 9  # Landsat 8 TOA 波段数
   val:
     # target: datapipe.datasets.PreprocessedTileDataset
     target: datapipe.datasets.TemporalTileDataset # 使用新的时序数据集
@@ -37,8 +41,7 @@ data:
       need_path: True
       sample_num: 200
       scale_factor: 3
-     # --- 【请在这里添加】 ---
-      num_lr_bands: 9
+      num_lr_bands: 9  # Landsat 8 TOA 波段数
   test:
     # target: datapipe.datasets.PreprocessedTileDataset
     target: datapipe.datasets.TemporalTileDataset # 使用新的时序数据集
@@ -47,13 +50,37 @@ data:
       hr_dir: "./data/processed_data/test/HR"
       need_path: True
       scale_factor: 3
-     # --- 【请在这里添加】 ---
-      num_lr_bands: 9
+      num_lr_bands: 9  # Landsat 8 TOA 波段数
 # 3. 训练器配置
 trainer:
   target: trainer.TrainerAlphaSR
 
-# 4. 训练参数
+# 4. CCDC 特征配置（可选）
+# 波段索引基于 Landsat 8 TOA: ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B10', 'B11']
+# 所有9个波段都用于CCDC处理
+ccdc:
+  enabled: false  # 是否启用 CCDC 特征
+  ccdc_dir: "./data/ccdc_features"  # CCDC 特征文件目录（相对于 train/val/test 的 lr_dir）
+  bands_to_process:  # 所有9个波段都用于CCDC处理（从0开始，基于 Landsat 8 TOA 波段顺序）
+    b2: 0   # B2 (Blue, 0.452-0.512 µm)
+    b3: 1   # B3 (Green, 0.533-0.590 µm)
+    b4: 2   # B4 (Red, 0.636-0.673 µm)
+    b5: 3   # B5 (NIR, 0.851-0.879 µm)
+    b6: 4   # B6 (SWIR1, 1.566-1.651 µm)
+    b7: 5   # B7 (SWIR2, 2.107-2.294 µm)
+    b8: 6   # B8 (Panchromatic, 0.503-0.676 µm)
+    b10: 7  # B10 (TIRS1, 10.60-11.19 µm)
+    b11: 8  # B11 (TIRS2, 11.50-12.51 µm)
+  coeffs_to_extract: ['a0', 'a1', 'b1']  # 要提取的谐波系数
+  # 说明：
+  # - a0: 截距
+  # - c1: 线性斜率
+  # - a1, b1: 一阶谐波系数
+  # - a2, b2: 二阶谐波系数
+  # - a3, b3: 三阶谐波系数
+  # CCDC 特征通道数 = len(bands_to_process) * len(coeffs_to_extract) = 9 * 3 = 27
+
+# 5. 训练参数
 train:
   save_dir: "./training_logs/swinir_3bands_run_1" # SwinIR的独立日志目录
   batch: [6, 3] # SwinIR模型较大， batch size 可能需要比 SRCNN 更小
@@ -71,9 +98,9 @@ train:
   log_freq: [100, 200, 200]
   save_freq: 1000
   val_freq: 500
-  rgb_chn: [0, 1, 2]
+  rgb_chn: [2, 1, 0]  # RGB通道索引: [Red(B4), Green(B3), Blue(B2)]，用于可视化
   local_logging: True
 
-# 5. 推理配置
+# 6. 推理配置
 inference:
   padding_offset: 16
