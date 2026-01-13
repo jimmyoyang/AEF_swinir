@@ -5,3 +5,4 @@ ignore/
 #训练曲线
 training_logs/
 save_dir/
+raw_landsat/
