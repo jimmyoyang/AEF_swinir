@@ -5,7 +5,7 @@ from datetime import datetime
 from multiprocessing import Pool, cpu_count
 
 import numpy as np
-import pyccd
+import ccd
 from osgeo import gdal
 from tqdm import tqdm
 
@@ -38,7 +38,7 @@ def _process_pixel_task(args):
         ccd_params[f'{band_name}s'] = pixel_ts_transposed[band_idx]
         
     try:
-        results = pyccd.detect(**ccd_params)
+        results = ccd.detect(**ccd_params)
         
         if results and len(results['change_models']) > 0:
             model = results['change_models'][0]
@@ -85,7 +85,7 @@ class CCDCFeatureExtractor:
         self.band_map = bands_to_process
         self.coeffs_to_extract = coeffs_to_extract
         self.use_multiprocessing = use_multiprocessing
-        self.num_workers = num_workers if num_workers is not None else cpu_count()
+        self.num_workers = num_workers if num_workers is not None else int(cpu_count()/2)
         self.num_output_channels = len(self.band_map) * len(self.coeffs_to_extract)
 
     @staticmethod
@@ -93,7 +93,8 @@ class CCDCFeatureExtractor:
         """从文件名中解析日期并转换为儒略日。"""
         try:
             # 假设文件名格式为 '..._YYYYMMDD.tif'
-            date_str = os.path.splitext(filename)[0].split('_')[-1]
+            date_str = os.path.splitext(filename)[0].split('_')[0]
+            
             dt = datetime.strptime(date_str, '%Y%m%d')
             return dt.toordinal()
         except:

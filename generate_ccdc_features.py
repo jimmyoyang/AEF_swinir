@@ -74,7 +74,7 @@ def generate_ccdc_features(config_path='configs/config_swinir.yaml'):
     
     # 从配置中获取基础数据目录
     if hasattr(configs, 'data') and hasattr(configs.data, 'train'):
-        base_lr_dir = Path(configs.data.train.params.lr_dir).parent
+        base_lr_dir = Path(configs.data.train.params.lr_dir).parent.parent
     else:
         # 默认路径
         base_lr_dir = Path('./data/processed_data')

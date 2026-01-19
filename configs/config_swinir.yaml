@@ -59,7 +59,7 @@ trainer:
 # 波段索引基于 Landsat 8 TOA: ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B10', 'B11']
 # 所有9个波段都用于CCDC处理
 ccdc:
-  enabled: false  # 是否启用 CCDC 特征
+  enabled: true  # 是否启用 CCDC 特征
   ccdc_dir: "./data/ccdc_features"  # CCDC 特征文件目录（相对于 train/val/test 的 lr_dir）
   bands_to_process:  # 所有9个波段都用于CCDC处理（从0开始，基于 Landsat 8 TOA 波段顺序）
     b2: 0   # B2 (Blue, 0.452-0.512 µm)
