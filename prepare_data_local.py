@@ -9,7 +9,6 @@
 #   - 使用固定的随机种子，将所有瓦片物理分割到 train/val/test 文件夹。
 # ==============================================================================
 
-import os
 import re
 import glob
 import random
@@ -26,7 +25,11 @@ from tqdm import tqdm
 # --- 1. 核心参数配置 (请根据您的环境进行调整) ---
 
 # 路径配置
-BASE_DATA_DIR = Path("./data") 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+# BASE_DATA_DIR = SCRIPT_DIR/ "data"  #Path("./data") 
+ABSOLUTE_PATH="/home/charles/lab/AEF_swinir/data"
+BASE_DATA_DIR=Path(ABSOLUTE_PATH)
 RAW_LANDSAT_DIR = BASE_DATA_DIR / "raw_landsat"
 RAW_ALPHA_DIR = BASE_DATA_DIR / "raw_alphaearth"
 PROCESSED_DATA_ROOT = BASE_DATA_DIR / "processed_data"
@@ -44,7 +47,7 @@ RANDOM_SEED = 42
 # 有效像素比例阈值：一个瓦片中有效像素必须达到这个比例才会被保留
 VALID_PIXEL_RATIO_THRESHOLD = 0.98 
 HR_BAND_REQUIREMENT_RATIO = 1.0 
-NUM_WORKERS = 48 # 并行处理的CPU核心数
+NUM_WORKERS = 64 # 并行处理的CPU核心数
 
 # ==============================================================================
 # 2. "工人" 函数 (用于并行处理，无需修改)
@@ -197,11 +200,14 @@ def main_processing():
     print("\n===== STAGE 3: Shuffling and splitting the dataset... =====")
     # 注意：这里的划分是基于瓦片ID，而不是单个文件，以确保同一地理位置的所有时相都在同一个数据集中
     all_tile_ids = set()
+    print("\n--- [DEBUG] STARTING STAGE 3 FILE SCAN ---")
     for f in (temp_dir / "LR").glob("*.tif"):
+        print(f"[DEBUG] Scanning file: {f.name}")
         match = re.search(r'tile_(\d+_\d+)\.tif', f.name)
         if match:
             all_tile_ids.add(match.group(1))
-    
+            print(f"   -->SUCCESS: Found tile ID:{match.group(1)}")
+    print(f"[DEBUG] Finish Scan. Total unique IDs found: {len(all_tile_ids)} ---\n")
     all_tile_ids = sorted(list(all_tile_ids))
     if not all_tile_ids:
         print("❌ CRITICAL: No tiles were actually generated after processing.", file=sys.stderr)
