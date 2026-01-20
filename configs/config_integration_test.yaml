@@ -24,61 +24,40 @@ model:
     # --- 新增：可插拔的融合模块 ---
     fusion_module: 'lightweight_channel_attention' # 可选: 'simple_concat', 'low_rank_fusion'
 
-# 2. 数据配置 (使用新的AnytimeTemporalDataset)
+# ... (model 部分保持不变) ...
+
+
+# 2. 数据配置 (指向【完整】数据集，并使用 sample_num)
 data:
   train:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/processed_data/train/LR_optical" # 路径建议更明确
+      lr_dir: "./data/processed_data/train/LR" # <-- 指向完整的训练集
       hr_dir: "./data/processed_data/train/HR"
-      sar_dir: "./data/processed_data/train/LR_sar"   # 新增SAR数据路径
-      use_sar: true
-      scale_factor: 3
-      num_lr_bands: 9
-      num_sar_bands: 2
+      sample_num: 100  # <-- 【核心】只使用前100个训练样本
 
   val:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/processed_data/val/LR_optical"
+      lr_dir: "./data/processed_data/val/LR"   # <-- 指向完整的验证集
       hr_dir: "./data/processed_data/val/HR"
-      sar_dir: "./data/processed_data/val/LR_sar"
-      use_sar: true
+      sample_num: 10   # <-- 【核心】只使用前10个验证样本
       need_path: True
-      sample_num: 200
-      scale_factor: 3
-      num_lr_bands: 9
-      num_sar_bands: 2
 
-# 3. 训练器配置 (保持不变)
-trainer:
-  target: trainer.TrainerAlphaSR
+  test:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: "./data/processed_data/test/LR"    # <-- 指向完整的测试集
+      hr_dir: "./data/processed_data/test/HR"
+      sample_num: 10   # <-- 【核心】只使用前10个测试样本
+      need_path: True
 
-# # 4. CCDC 特征配置（可选）
-# # 波段索引基于 Landsat 8 TOA: ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B10', 'B11']
-# # 所有9个波段都用于CCDC处理
-# ccdc:
-#   enabled: true  # 是否启用 CCDC 特征
-#   ccdc_dir: "./data/ccdc_features"  # CCDC 特征文件目录（相对于 train/val/test 的 lr_dir）
-#   bands_to_process:  # 所有9个波段都用于CCDC处理（从0开始，基于 Landsat 8 TOA 波段顺序）
-#     b2: 0   # B2 (Blue, 0.452-0.512 µm)
-#     b3: 1   # B3 (Green, 0.533-0.590 µm)
-#     b4: 2   # B4 (Red, 0.636-0.673 µm)
-#     b5: 3   # B5 (NIR, 0.851-0.879 µm)
-#     b6: 4   # B6 (SWIR1, 1.566-1.651 µm)
-#     b7: 5   # B7 (SWIR2, 2.107-2.294 µm)
-#     b8: 6   # B8 (Panchromatic, 0.503-0.676 µm)
-#     b10: 7  # B10 (TIRS1, 10.60-11.19 µm)
-#     b11: 8  # B11 (TIRS2, 11.50-12.51 µm)
-#   coeffs_to_extract: ['a0', 'a1', 'b1']  # 要提取的谐波系数
-#   # 说明：
-#   # - a0: 截距
-#   # - c1: 线性斜率
-#   # - a1, b1: 一阶谐波系数
-#   # - a2, b2: 二阶谐波系数
-#   # - a3, b3: 三阶谐波系数
-#   # CCDC 特征通道数 = len(bands_to_process) * len(coeffs_to_extract) = 9 * 3 = 27
 
+# ... (trainer 部分保持不变) ...
+  # ...
+
+
+# ... (inference 部分保持不变) ...
 
 # 5. 训练参数 (保持不变)
 train:
