@@ -1,5 +1,5 @@
 # 文件路径: trainer.py
-# (v_industrial_final - 工业级封装，修复了helper函数作用域问题)
+# (v_standalone_loss - 最终版，将损失逻辑完全内置，不再需要外部losses.py)
 
 import os, sys, math, time, random, datetime
 import numpy as np
@@ -18,7 +18,6 @@ import matplotlib.pyplot as plt
 # 假设您的其他模块路径正确
 from datapipe.datasets import create_dataset
 from utils import util_net, util_common
-from models.losses import CompoundLoss # 假设您的复合损失在这里
 
 # ==============================================================================
 # 1. Trainer 基类 (封装通用逻辑)
@@ -139,6 +138,12 @@ class TrainerBase:
                 
         if self.rank == 0: self.plot_curves(); self.logger.info("--- Training Finished ---")
 
+    @staticmethod
+    def norm_for_vis(img_tensor):
+        img_clamped = img_tensor.clamp(-1, 1)
+        img_01 = (img_clamped + 1) / 2.0
+        return img_01.cpu().numpy()
+
 # ==============================================================================
 # 2. 针对AlphaSR任务的专用Trainer
 # ==============================================================================
@@ -146,64 +151,58 @@ class TrainerAlphaSR(TrainerBase):
     def __init__(self, configs):
         super().__init__(configs)
         if self.rank == 0:
-            self.log_data = {'train_total_loss':{'iters':[],'values':[]}, 'val_psnr':{'iters':[],'values':[]}, 'val_ssim':{'iters':[],'values':[]}}
-            if hasattr(self.configs.train, 'loss'):
-                for k in self.configs.train.loss.weights.keys():
-                    self.log_data[f'train_{k}_loss'] = {'iters':[], 'values':[]}
+            self.log_data = {'train_loss':{'iters':[],'values':[]}, 'val_psnr':{'iters':[],'values':[]}, 'val_ssim':{'iters':[],'values':[]}}
 
     def setup_optimization(self):
         super().setup_optimization()
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode="max", **self.configs.train.lr_schedule_params)
-        self.criterion = CompoundLoss(self.configs.train.loss.weights).cuda()
-        self.scaler = torch.cuda.amp.GradScaler(enabled=self.configs.train.get('mixed_precision', False))
+        # 【核心修改】直接在这里定义损失函数，与您的原始代码保持一致
+        self.criterion = F.l1_loss
 
     def adjust_lr(self, metrics):
         self.scheduler.step(metrics)
 
     def training_step(self, data):
-        with torch.cuda.amp.autocast(enabled=self.configs.train.mixed_precision):
-            predictions = self.model(data)
-            loss, loss_dict = self.criterion(predictions, data['gt'])
+        """
+        【核心修改】训练步骤现在直接接收和传递数据字典。
+        """
+        predictions = self.model(data)
+        loss = self.criterion(predictions, data['gt'])
         
         self.optimizer.zero_grad()
-        self.scaler.scale(loss).backward()
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
+        loss.backward()
+        self.optimizer.step()
         
-        self.log_step_train(loss, loss_dict)
+        self.log_step_train(loss)
 
-    def log_step_train(self, loss, loss_dict):
+    def log_step_train(self, loss):
+        """记录训练 loss 用于绘图和打印。"""
         if self.rank == 0:
-            self.log_data['train_total_loss']['values'].append(loss.item())
-            self.log_data['train_total_loss']['iters'].append(self.current_iters)
-            for k, v in loss_dict.items():
-                if f'train_{k}' not in self.log_data: self.log_data[f'train_{k}'] = {'iters':[], 'values':[]}
-                self.log_data[f'train_{k}']['values'].append(v)
-                self.log_data[f'train_{k}']['iters'].append(self.current_iters)
-
+            self.log_data['train_loss']['iters'].append(self.current_iters)
+            self.log_data['train_loss']['values'].append(loss.item())
             if self.current_iters % self.configs.train.log_freq[0] == 0:
-                components_str = " | ".join([f"{k}: {v:.4f}" for k, v in loss_dict.items()])
-                self.logger.info(f"Iter: {self.current_iters:06d}, Total Loss: {loss.item():.4e}, lr:{self.optimizer.param_groups[0]['lr']:.2e} | {components_str}")
+                self.logger.info(f"Iter: {self.current_iters:06d}, Loss: {loss.item():.4e}, lr:{self.optimizer.param_groups[0]['lr']:.2e}")
 
     @torch.no_grad()
     def validation(self, phase='val'):
         if self.rank == 0:
             self.model.eval()
-            all_metrics = {'psnr':[], 'ssim':[]}
+            all_metrics = {'psnr':[], 'ssim':[], 'ergas':[], 'sam':[]}
             pbar = tqdm(self.dataloaders[phase], desc=f"Validation iter {self.current_iters}")
             
             for ii, data in enumerate(pbar):
                 data = self.prepare_data(data)
-                with torch.cuda.amp.autocast(enabled=self.configs.train.mixed_precision):
-                    predictions = self.model(data)
+                with torch.no_grad(): predictions = self.model(data)
                 
                 # 【核心修正】通过 self.norm_for_vis 调用
-                gt_01, pred_01 = self.norm_for_vis(data['gt']), self.norm_for_vis(predictions)
+                gt_01 = self.norm_for_vis(data['gt'])
+                pred_01 = self.norm_for_vis(predictions)
                 gt_numpy, pred_numpy = gt_01.transpose(0,2,3,1)[0], pred_01.transpose(0,2,3,1)[0]
                 
                 psnr_val=np.mean([psnr(gt_numpy[:,:,b], pred_numpy[:,:,b], MAX=1.0) for b in range(gt_numpy.shape[-1])])
                 ssim_val=np.mean([ssim(gt_numpy[:,:,b], pred_numpy[:,:,b], MAX=1.0)[0] for b in range(gt_numpy.shape[-1])])
                 all_metrics['psnr'].append(psnr_val); all_metrics['ssim'].append(ssim_val)
+                all_metrics['ergas'].append(ergas(gt_numpy,pred_numpy)); all_metrics['sam'].append(sam(gt_numpy,pred_numpy))
                 
                 if ii == 0 and self.configs.train.get('local_logging', False):
                     self.visualize_validation_sample(data, predictions, ii)
@@ -219,7 +218,7 @@ class TrainerAlphaSR(TrainerBase):
     
     def visualize_validation_sample(self, data, predictions, sample_idx):
         """封装的可视化函数"""
-        lr_vis_tensor = data['lr_sequence'][sample_idx, 0] # 可视化第一个时相
+        lr_vis_tensor = data['lr_sequence'][sample_idx, 0]
         gt_vis_tensor = data['gt'][sample_idx]
         pred_vis_tensor = predictions[sample_idx]
         
@@ -228,16 +227,16 @@ class TrainerAlphaSR(TrainerBase):
         gt_vis = self.norm_for_vis(gt_vis_tensor)
         pred_vis = self.norm_for_vis(pred_vis_tensor)
         
-        error_map = np.abs(pred_vis - gt_vis).mean(axis=2) # H,W,C -> H,W
+        error_map = np.abs(pred_vis - gt_vis).mean(axis=2)
         
         fig, axes = plt.subplots(2, 2, figsize=(14, 14))
         fig.suptitle(f'Validation at Iteration {self.current_iters}', fontsize=16)
         
         rgb_chn = self.configs.train.get('rgb_chn', [0, 1, 2])
         
-        axes[0,0].imshow(lr_vis[:, :, rgb_chn]); axes[0,0].set_title('Input LR (First Timestep)')
-        axes[0,1].imshow(pred_vis[:, :, rgb_chn]); axes[0,1].set_title('Prediction (SR)')
-        axes[1,0].imshow(gt_vis[:, :, rgb_chn]); axes[1,0].set_title('Ground Truth (HR)')
+        axes[0,0].imshow(lr_vis.transpose(1,2,0)[:, :, rgb_chn]); axes[0,0].set_title('Input LR (First Timestep)')
+        axes[0,1].imshow(pred_vis.transpose(1,2,0)[:, :, rgb_chn]); axes[0,1].set_title('Prediction (SR)')
+        axes[1,0].imshow(gt_vis.transpose(1,2,0)[:, :, rgb_chn]); axes[1,0].set_title('Ground Truth (HR)')
         im = axes[1,1].imshow(error_map, cmap='hot'); axes[1,1].set_title('Absolute Error Map'); fig.colorbar(im, ax=axes[1,1])
         
         for ax in axes.flatten(): ax.set_xticks([]); ax.set_yticks([])
@@ -247,16 +246,13 @@ class TrainerAlphaSR(TrainerBase):
         plt.close(fig)
 
     def baseline_visualize(self):
-        """【补全】适配字典式数据的 baseline 可视化"""
         if self.rank == 0 and self.configs.train.get('local_logging', False):
             self.logger.info("Generating baseline visualization...")
             self.model.eval()
             try:
                 data = next(iter(self.dataloaders['val']))
                 data = self.prepare_data(data)
-                
                 with torch.no_grad(): predictions = self.model(data)
-                
                 self.visualize_validation_sample(data, predictions, 0)
                 save_path = self.image_dir / 'val' / "iter_0_baseline_comparison.png"
                 self.logger.info(f"Baseline visualization saved to: {save_path}")
@@ -265,37 +261,24 @@ class TrainerAlphaSR(TrainerBase):
             self.model.train()
 
     def plot_curves(self):
-        """【补全】适配复合损失的绘图逻辑"""
         if self.rank == 0 and hasattr(self, 'log_data'):
             self.logger.info("Generating training curves plot...")
-            num_losses = len([k for k in self.log_data.keys() if 'train' in k and k != 'train_total_loss'])
-            fig, axes = plt.subplots(2 + num_losses, 1, figsize=(12, 6 * (2 + num_losses)), sharex=True)
+            fig, ax1 = plt.subplots(figsize=(12, 7))
+            color = 'tab:red'
+            ax1.set_xlabel('Iterations'); ax1.set_ylabel('Training L1 Loss (Log Scale)', color=color)
+            ax1.plot(self.log_data['train_loss']['iters'], self.log_data['train_loss']['values'], color=color, alpha=0.7, linewidth=2, label='Loss')
+            ax1.tick_params(axis='y', labelcolor=color); ax1.grid(True, linestyle=':', alpha=0.7); ax1.set_yscale('log')
             
-            # 绘制总损失
-            axes[0].plot(self.log_data['train_total_loss']['iters'], self.log_data['train_total_loss']['values'], color='tab:red', label='Total Loss')
-            axes[0].set_ylabel('Total Loss (Log Scale)'); axes[0].set_yscale('log'); axes[0].grid(True, linestyle=':')
+            if self.log_data['val_psnr']['iters']:
+                ax2 = ax1.twinx()
+                color = 'tab:blue'
+                ax2.set_ylabel('Validation PSNR (dB) / SSIM', color=color)
+                ax2.plot(self.log_data['val_psnr']['iters'], self.log_data['val_psnr']['values'], color='tab:blue', marker='o', linestyle='-', markersize=5, label='PSNR (dB)')
+                ax2.plot(self.log_data['val_ssim']['iters'], self.log_data['val_ssim']['values'], color='tab:green', marker='x', linestyle='--', label='SSIM')
+                ax2.tick_params(axis='y', labelcolor=color)
+                lines, labels = ax1.get_legend_handles_labels(); lines2, labels2 = ax2.get_legend_handles_labels()
+                ax2.legend(lines + lines2, labels + labels2, loc='best')
             
-            # 绘制PSNR和SSIM
-            ax_psnr = axes[1]
-            ax_ssim = ax_psnr.twinx()
-            ax_psnr.plot(self.log_data['val_psnr']['iters'], self.log_data['val_psnr']['values'], color='tab:blue', marker='o', linestyle='-', markersize=4, label='PSNR (dB)')
-            ax_ssim.plot(self.log_data['val_ssim']['iters'], self.log_data['val_ssim']['values'], color='tab:green', marker='x', linestyle='--', markersize=4, label='SSIM')
-            ax_psnr.set_ylabel('Validation PSNR (dB)', color='tab:blue'); ax_ssim.set_ylabel('Validation SSIM', color='tab:green')
-            ax_psnr.grid(True, linestyle=':')
-            
-            # 绘制每个损失分量
-            plot_idx = 2
-            for k in self.configs.train.loss.weights.keys():
-                log_key = f'train_{k}_loss'
-                if log_key in self.log_data and self.log_data[log_key]['values']:
-                    axes[plot_idx].plot(self.log_data[log_key]['iters'], self.log_data[log_key]['values'], label=f'{k} Loss')
-                    axes[plot_idx].set_ylabel(f'{k} Loss'); axes[plot_idx].grid(True); axes[plot_idx].set_yscale('log')
-                    plot_idx += 1
-            
-            fig.suptitle('Training & Validation Curves', fontsize=16)
-            plt.xlabel('Iterations')
-            fig.tight_layout(rect=[0, 0, 1, 0.96])
-            save_path = self.save_dir / "training_curves.png"
-            plt.savefig(str(save_path), dpi=150)
-            plt.close(fig)
+            fig.suptitle('Training & Validation Curves', fontsize=16); fig.tight_layout()
+            save_path = self.save_dir / "training_curves.png"; plt.savefig(str(save_path), dpi=150); plt.close(fig)
             self.logger.info(f"Training curves plot saved to: {save_path}")
