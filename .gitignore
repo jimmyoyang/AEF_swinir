@@ -6,3 +6,4 @@ ignore/
 training_logs/
 save_dir/
 raw_landsat/
+files/
