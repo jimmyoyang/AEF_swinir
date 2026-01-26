@@ -22,7 +22,7 @@ def run_pipeline_test():
 
     # 1. 加载主配置文件
     try:
-        configs = OmegaConf.load('/home/charles/lab/AEF_swinir/configs/config_swinir.yaml')
+        configs = OmegaConf.load('/mnt/lm_data_afs/wangzining/charles/AEF_swinir/configs/config_swinir.yaml')
         print("✅ Successfully loaded 'config_swinir.yaml'.")
     except FileNotFoundError:
         print("❌ CRITICAL: 'config_swinir.yaml' not found in the project root.")

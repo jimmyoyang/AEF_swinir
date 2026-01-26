@@ -31,7 +31,7 @@ from tqdm import tqdm
 # 使用绝对路径或确保从正确的项目根目录运行
 # SCRIPT_DIR = Path(__file__).resolve().parent
 # BASE_DATA_DIR = SCRIPT_DIR/ "data"  #Path("./data") 
-ABSOLUTE_PATH="/home/charles/lab/AEF_swinir/data"
+ABSOLUTE_PATH="/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data"
 BASE_DATA_DIR=Path(ABSOLUTE_PATH)
 RAW_LANDSAT_DIR = BASE_DATA_DIR / "raw_landsat"
 RAW_ALPHA_DIR = BASE_DATA_DIR / "raw_alphaearth"
