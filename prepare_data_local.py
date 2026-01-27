@@ -28,11 +28,17 @@ from tqdm import tqdm
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 # BASE_DATA_DIR = SCRIPT_DIR/ "data"  #Path("./data") 
-ABSOLUTE_PATH="/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data"
+# ABSOLUTE_PATH="/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data"
+# BASE_DATA_DIR=Path(ABSOLUTE_PATH)
+# RAW_LANDSAT_DIR = BASE_DATA_DIR / "raw_landsat"
+# RAW_ALPHA_DIR = BASE_DATA_DIR / "raw_alphaearth"
+# PROCESSED_DATA_ROOT = BASE_DATA_DIR / "processed_data"
+
+ABSOLUTE_PATH="/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test"
 BASE_DATA_DIR=Path(ABSOLUTE_PATH)
-RAW_LANDSAT_DIR = BASE_DATA_DIR / "raw_landsat"
-RAW_ALPHA_DIR = BASE_DATA_DIR / "raw_alphaearth"
-PROCESSED_DATA_ROOT = BASE_DATA_DIR / "processed_data"
+RAW_LANDSAT_DIR = BASE_DATA_DIR / "raw_landsat_LR_30m"
+RAW_ALPHA_DIR = BASE_DATA_DIR / "raw_alphaearth_HR_10m"
+PROCESSED_DATA_ROOT = BASE_DATA_DIR / "processed_data_SR_10m"
 
 # 数据元信息
 REF_PATH, REF_ROW = 132, 33
@@ -41,8 +47,8 @@ ALPHAEARTH_BANDS_TO_USE = [f'A{i:02d}' for i in range(NUM_ALPHA_BANDS_TO_STACK)]
 LR_PATCH_SIZE, SCALE_FACTOR, HR_PATCH_SIZE = 64, 3, 192
 
 # 数据集划分与并行设置
-TRAIN_RATIO = 0.7
-VAL_RATIO = 0.15
+TRAIN_RATIO = 0.5
+VAL_RATIO = 0.25
 RANDOM_SEED = 42
 # 有效像素比例阈值：一个瓦片中有效像素必须达到这个比例才会被保留
 VALID_PIXEL_RATIO_THRESHOLD = 0.98 

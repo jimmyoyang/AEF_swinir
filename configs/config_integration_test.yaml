@@ -1,85 +1,42 @@
-# 1. 模型配置 (已适配“后置上采样”和“Anytime”理念)
-model:
-  target: models.network_swinir.SwinIR
-  params:
-    # --- 核心修改：在LR空间计算 ---
-    img_size: 64            # 模型主体将在64x64的LR空间进行计算
-    upscale: 3              # 上采样倍率保持不变
-    # --- 核心修改：启用后置上采样 ---
-    upsampler: 'pixelshuffle' # 在网络末端使用PixelShuffle进行高效上采样
+# 文件路径: configs/config_integration_test.yaml
+# 这是一个专门用于快速集成测试的配置文件
 
-    # --- SwinIR 核心参数 (保持不变) ---
-    window_size: 8
-    embed_dim: 180
-    depths: [6, 6, 6, 6]
-    num_heads: [6, 6, 6, 6]
-    mlp_ratio: 4
-    resi_connection: '1conv'
+# 【核心】导入并继承您的主配置文件
+defaults:
+  - config_swinir.yaml
 
-    # --- 输入/输出通道 (将由数据集动态确定) ---
-    # in_chans: 20 * 9 # 示例：20个光学时相 * 9个波段
-    # sar_chans: 20 * 2 # 示例：20个SAR时相 * 2个极化
-    out_channels: 64
+# ==========================================================
+# 【覆盖】修改以下参数以进行快速测试
+# ==========================================================
 
-    # --- 新增：可插拔的融合模块 ---
-    fusion_module: 'lightweight_channel_attention' # 可选: 'simple_concat', 'low_rank_fusion'
-
-# ... (model 部分保持不变) ...
-
-
-# 2. 数据配置 (指向【完整】数据集，并使用 sample_num)
 data:
   train:
-    target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/processed_data/train/LR" # <-- 指向完整的训练集
-      hr_dir: "./data/processed_data/train/HR"
-      sample_num: 100  # <-- 【核心】只使用前100个训练样本
+      # 【修改】使用您指定的绝对路径
+      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/train/LR"
+      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/train/HR"
+      # 【核心】仅使用少量样本进行快速测试
+      sample_num: 16  # <-- 使用少量样本，例如16个，确保一个batch能跑起来
 
   val:
-    target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/processed_data/val/LR"   # <-- 指向完整的验证集
-      hr_dir: "./data/processed_data/val/HR"
-      sample_num: 10   # <-- 【核心】只使用前10个验证样本
-      need_path: True
+      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/val/LR"
+      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/val/HR"
+      sample_num: 8 # 验证集也用少量样本
 
-  test:
-    target: datapipe.datasets.AnytimeTemporalDataset
+  test: # 为推理测试预留
     params:
-      lr_dir: "./data/processed_data/test/LR"    # <-- 指向完整的测试集
-      hr_dir: "./data/processed_data/test/HR"
-      sample_num: 10   # <-- 【核心】只使用前10个测试样本
-      need_path: True
+      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/test/LR"
+      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/test/HR"
+      sample_num: 8
 
-
-# ... (trainer 部分保持不变) ...
-  # ...
-
-
-# ... (inference 部分保持不变) ...
-
-# 5. 训练参数 (保持不变)
 train:
-  save_dir: "./training_logs/swinir_anytime_lca_run_1"
-  batch: [6, 3]
-  iterations: 10000
-  lr: 0.0001
-  lr_schedule: "ReduceLROnPlateau"
-  lr_schedule_params:
-    patience: 5
-    factor: 0.5
-  lr_min: 0.000001
-  weight_decay: 0.0
-  global_seeding: True
-  seed: 42
-  num_workers: 48
-  log_freq: [100, 200, 200]
-  save_freq: 1000
-  val_freq: 500
-  rgb_chn: [2, 1, 0]
-  local_logging: True
-
-# 6. 推理配置 (保持不变)
-inference:
-  padding_offset: 16
+  # 【修改】大幅缩短训练参数
+  experiment_name: "integration_test" # <-- 独立的日志目录
+  save_dir: "./training_logs/integration_tests" # 保存到专门的测试日志目录
+  batch: [8, 4] # [train_batch, val_batch], 根据 sample_num 调整
+  iterations: 10 # <-- 只跑10次迭代就足够验证流程
+  log_freq: [2, 10, 10]
+  save_freq: 5
+  val_freq: 5 # 确保在10次迭代内至少跑一次验证
+  num_workers: 4 # 可以适当调低

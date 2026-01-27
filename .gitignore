@@ -7,3 +7,5 @@ training_logs/
 save_dir/
 raw_landsat/
 files/
+inference_results/
+debug_output/

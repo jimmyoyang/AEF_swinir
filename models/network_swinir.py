@@ -1,5 +1,6 @@
 # 文件路径: models/network_swinir.py
-# (v_anytime - 实现了后置上采样和多模态融合的全新版本)
+# (版本: v_anytime_flexible_fusion - 实现了可配置时序融合的最终版本)
+
 import numpy as np
 import math
 import torch
@@ -9,10 +10,12 @@ import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
 # ==============================================================================
-# 1. 基础模块 (与GitHub原版完全一致，完整保留)
+# 1. 基础模块 (Mlp, window_partition, etc.)
+#
+# 【不变】这部分是SwinIR的核心组件，我们完整保留，不做任何改动。
 # ==============================================================================
-
 class Mlp(nn.Module):
+    
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
         out_features = out_features or in_features
@@ -21,7 +24,6 @@ class Mlp(nn.Module):
         self.act = act_layer()
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
-
     def forward(self, x):
         x = self.fc1(x)
         x = self.act(x)
@@ -43,6 +45,7 @@ def window_reverse(windows, window_size, H, W):
     return x
 
 class WindowAttention(nn.Module):
+    # ... (您提供的完整 WindowAttention 代码)
     def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
         self.dim = dim
@@ -68,7 +71,6 @@ class WindowAttention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
-
     def forward(self, x, mask=None):
         B_, N, C = x.shape
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -92,6 +94,7 @@ class WindowAttention(nn.Module):
         return x
 
 class SwinTransformerBlock(nn.Module):
+    # ... (您提供的完整 SwinTransformerBlock 代码)
     def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0, mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim
@@ -127,7 +130,6 @@ class SwinTransformerBlock(nn.Module):
         else:
             attn_mask = None
         self.register_buffer("attn_mask", attn_mask)
-
     def forward(self, x):
         H, W = self.input_resolution
         B, L, C = x.shape
@@ -154,6 +156,7 @@ class SwinTransformerBlock(nn.Module):
         return x
 
 class BasicLayer(nn.Module):
+    # ... (您提供的完整 BasicLayer 代码)
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False):
         super().__init__()
         self.dim = dim
@@ -165,7 +168,6 @@ class BasicLayer(nn.Module):
             self.downsample = downsample(input_resolution, dim=dim, norm_layer=norm_layer)
         else:
             self.downsample = None
-
     def forward(self, x):
         for blk in self.blocks:
             if self.use_checkpoint:
@@ -177,6 +179,7 @@ class BasicLayer(nn.Module):
         return x
 
 class RSTB(nn.Module):
+    # ... (您提供的完整 RSTB 代码)
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False, resi_connection='1conv'):
         super(RSTB, self).__init__()
         self.dim = dim
@@ -186,11 +189,14 @@ class RSTB(nn.Module):
             self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
         elif resi_connection == '3conv':
             self.conv = nn.Sequential(nn.Conv2d(dim, dim, 3, 1, 1), nn.LeakyReLU(negative_slope=0.2, inplace=True), nn.Conv2d(dim, dim, 3, 1, 1))
-
     def forward(self, x, x_size):
-        return self.conv(self.residual_group(x).view(-1, *x_size, self.dim).permute(0, 3, 1, 2)) + x
+        # import pdb;pdb.set_trace()
+        B,L,C=x.shape
+        # return self.conv(self.residual_group(x).view(-1, *x_size, self.dim).permute(0, 3, 1, 2)) + x
+        return self.conv(self.residual_group(x).view(-1, *x_size, self.dim).permute(0, 3, 1, 2)).reshape(B,L,C) + x
 
 class PatchEmbed(nn.Module):
+    # ... (您提供的完整 PatchEmbed 代码)
     def __init__(self, img_size=224, patch_size=4, in_chans=3, embed_dim=96, norm_layer=None):
         super().__init__()
         img_size = to_2tuple(img_size)
@@ -207,7 +213,7 @@ class PatchEmbed(nn.Module):
             self.norm = norm_layer(embed_dim)
         else:
             self.norm = None
-
+            
     def forward(self, x):
         B, C, H, W = x.shape
         assert H == self.img_size[0] and W == self.img_size[1], f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
@@ -217,6 +223,7 @@ class PatchEmbed(nn.Module):
         return x
 
 class PatchUnEmbed(nn.Module):
+    # ... (您提供的完整 PatchUnEmbed 代码)
     def __init__(self, img_size=224, patch_size=4, embed_dim=96):
         super().__init__()
         img_size = to_2tuple(img_size)
@@ -225,13 +232,13 @@ class PatchUnEmbed(nn.Module):
         self.patch_size = patch_size
         self.H, self.W = img_size[0] // patch_size[0], img_size[1] // patch_size[1]
         self.embed_dim = embed_dim
-
     def forward(self, x, x_size):
         B, HW, C = x.shape
         x = x.transpose(1, 2).view(B, self.embed_dim, x_size[0], x_size[1])
         return x
 
 class Upsample(nn.Sequential):
+    # ... (您提供的完整 Upsample 代码)
     def __init__(self, scale, num_feat):
         m = []
         if (scale & (scale - 1)) == 0:
@@ -246,60 +253,103 @@ class Upsample(nn.Sequential):
         super(Upsample, self).__init__(*m)
 
 # ==============================================================================
-# 2. 新增的辅助模块 (时间编码)
+# 2. 辅助函数 (时间编码 & 时序聚合)
+#
+# 【不变】保留您已有的时间编码函数。
+# 【新增】将不同的时序聚合策略封装成独立的函数，并创建注册表。
 # ==============================================================================
-# (get_timestamp_encoding 函数可以放在这里或 utils 文件中)
 def get_timestamp_encoding(timestamps, encoding_dim=64):
     """
     为一批时间戳（例如，年内日）生成正弦/余弦位置编码。
-    timestamps: 1D张量，包含需要编码的时间戳。
-    encoding_dim: 编码向量的维度。
     """
     if encoding_dim % 2 != 0:
         raise ValueError(f"Encoding dimension must be an even number, but got {encoding_dim}")
-
     position = timestamps.unsqueeze(1)
-    div_term = torch.exp(torch.arange(0, encoding_dim, 2).float() * -(np.log(10000.0) / encoding_dim))
-    
-    pe = torch.zeros(len(timestamps), encoding_dim)
+    div_term = torch.exp(torch.arange(0, encoding_dim, 2, device=timestamps.device).float() * -(np.log(10000.0) / encoding_dim))
+    pe = torch.zeros(len(timestamps), encoding_dim, device=timestamps.device)
     pe[:, 0::2] = torch.sin(position * div_term)
     pe[:, 1::2] = torch.cos(position * div_term)
-    
     return pe
 
+def temporal_fusion_mean(fused_feat, B, T, D, H, W, **kwargs):
+    """
+    步骤一：基线策略。使用简单的平均池化进行时序聚合。
+    支持mask，只对有效时相进行平均。
+    """
+    mask = kwargs.get('mask', None)
+    if mask is not None:
+        # 只对有效时相进行平均
+        fused_feat_reshaped = fused_feat.view(B, T, D, H, W)  # (B, T, D, H, W)
+        # 将无效时相置为0，然后计算平均
+        masked_feat = fused_feat_reshaped * mask.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # (B, T, D, H, W)
+        sum_feat = masked_feat.sum(dim=1)  # (B, D, H, W)
+        valid_count = mask.sum(dim=1, keepdim=True).clamp(min=1)  # (B, 1) 避免除零
+        return sum_feat / valid_count.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    else:
+        return fused_feat.view(B, T, D, H, W).mean(dim=1)
+
+def temporal_fusion_attention(fused_feat, B, T, D, H, W, **kwargs):
+    """
+    【预留空间】步骤二：先进策略。使用时序注意力进行聚合。
+    """
+    # TODO: 在这里实现您的注意力逻辑。
+    # 示例:
+    # attn_module = kwargs.get('attn_module')
+    # if attn_module is not None:
+    #     # ... 实现加权融合
+    #     pass
+
+    # 在未实现前，打印警告并回退到平均融合，以保证代码可运行
+    print("【警告】temporal_fusion_attention 尚未实现，暂时回退到平均融合。")
+    return temporal_fusion_mean(fused_feat, B, T, D, H, W, **kwargs)
+
+# 【新增】创建一个函数注册表，便于动态调用
+TEMPORAL_FUSION_REGISTRY = {
+    'mean': temporal_fusion_mean,
+    'attention': temporal_fusion_attention,
+}
 
 # ==============================================================================
-# 3. 主模型 SwinIR (Anytime 版本)
+# 3. 主模型 SwinIR
+#
+# 【修改】对SwinIR类进行微小修改，使其能够根据配置动态调用不同的时序融合函数。
 # ==============================================================================
-
 class SwinIR(nn.Module):
     def __init__(self, img_size=64, patch_size=1, in_chans=9, time_encoding_dim=64,
                  embed_dim=180, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm, use_checkpoint=False, 
+                 norm_layer=nn.LayerNorm, use_checkpoint=False,
                  upscale=3, upsampler='pixelshuffle', resi_connection='1conv',
-                 out_channels=64, **kwargs):
-        super(SwinIR, self).__init__()
+                 out_channels=64,
+                 # 【新增】接收新的配置参数，并提供默认值
+                 temporal_fusion_mode='mean',
+                 temporal_attention_params=None,
+                 **kwargs):
 
-        # --- 1. 参数定义 ---
+        super(SwinIR, self).__init__()
+        # --- 1. 保存配置 ---
         self.upscale = upscale
-        
-        # --- 2. 输入嵌入层 ---
+        self.embed_dim = embed_dim
+        self.temporal_fusion_mode = temporal_fusion_mode
+
+        # --- 2. 输入嵌入层 (与您之前的版本保持不变) ---
         self.conv_first = nn.Conv2d(in_chans, embed_dim, 3, 1, 1)
         self.time_embed = nn.Linear(time_encoding_dim, embed_dim)
-        
-        # --- 3. 时序聚合模块 (这里使用简单的平均法作为示例) ---
-        # 如果要换成ConvGRU，在这里实例化
-        # self.temporal_aggregator = ConvGRU(...)
 
-        # --- 4. 深层特征提取 (Swin Transformer Body) ---
+        # --- 3. 【预留空间】为 'attention' 模式实例化模块 ---
+        self.temporal_attn_module = None
+        if self.temporal_fusion_mode == 'attention':
+            # TODO: 在这里根据 temporal_attention_params 实例化您的注意力模块
+            # self.temporal_attn_module = YourAttentionModuleClass(**temporal_attention_params)
+            print("【信息】已为 'attention' 模式初始化注意力模块（此为占位符，待实现）。")
+
+        # --- 4. 深层特征提取 (Swin Transformer Body) (与您之前的版本保持不变) ---
         self.num_layers = len(depths)
-        self.patch_embed = PatchEmbed(img_size, patch_size, embed_dim, embed_dim)
-        self.patch_unembed = PatchUnEmbed(img_size, patch_size, embed_dim)
+        self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=embed_dim, embed_dim=embed_dim, norm_layer=norm_layer)
+        self.patch_unembed = PatchUnEmbed(img_size=img_size, patch_size=patch_size, embed_dim=embed_dim)
         self.pos_drop = nn.Dropout(p=drop_rate)
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
-        
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
             layer = RSTB(dim=embed_dim,
@@ -318,15 +368,14 @@ class SwinIR(nn.Module):
         self.norm = norm_layer(embed_dim)
         self.conv_after_body = nn.Conv2d(embed_dim, embed_dim, 3, 1, 1)
 
-        # --- 5. 后置上采样模块 ---
+        # --- 5. 上采样与重建 (与您之前的版本保持不变) ---
         if upsampler == 'pixelshuffle':
             self.upsample = Upsample(upscale, embed_dim)
         else:
             self.upsample = nn.Identity()
-
         # --- 6. 最终图像重建 ---
         self.conv_last = nn.Conv2d(embed_dim, out_channels, 3, 1, 1)
-        
+
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -339,6 +388,7 @@ class SwinIR(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def forward_features(self, x):
+        # import pdb;pdb.set_trace()
         x_size = (x.shape[2], x.shape[3])
         x = self.patch_embed(x)
         x = self.pos_drop(x)
@@ -350,13 +400,24 @@ class SwinIR(nn.Module):
 
     def forward(self, data):
         """
-        全新的、支持Anytime理念的 forward 方法。
-        data: 一个包含 'lr_sequence', 'timestamps' 等的字典。
+        SwinIR 的前向传播，时序聚合部分根据配置动态调用。
         """
-        lr_seq = data['lr_sequence'] # (B, T, C, H, W)
-        timestamps = data['timestamps'] # (B, T)
-        B, T, C, H, W = lr_seq.shape
+        # 获取数据，支持单个样本和batch
+        lr_seq = data['lr_sequence']  # 可能是 (T, C, H, W) 或 (B, T, C, H, W)
+        timestamps = data['timestamps']  # 可能是 (T,) 或 (B, T)
+        mask = data.get('mask', None)  # 可能是 (T,) 或 (B, T)，指示哪些时相是有效的
 
+        # 处理单个样本的情况：添加batch维度
+        if lr_seq.dim() == 4:  # (T, C, H, W)
+            lr_seq = lr_seq.unsqueeze(0)  # (1, T, C, H, W)
+            timestamps = timestamps.unsqueeze(0)  # (1, T)
+            if mask is not None:
+                mask = mask.unsqueeze(0)  # (1, T)
+            B, T, C, H, W = lr_seq.shape
+        else:  # 已经是batch格式 (B, T, C, H, W)
+            B, T, C, H, W = lr_seq.shape
+
+        # 1, 2, 3. 展平、嵌入、融合 (与您之前的版本完全相同)
         # 1. 将序列数据展平，以便进行2D卷积
         lr_seq_flat = lr_seq.view(B * T, C, H, W)
         
@@ -368,9 +429,24 @@ class SwinIR(nn.Module):
         time_feat = self.time_embed(time_enc) # (B*T, embed_dim)
         fused_feat = optical_feat + time_feat.unsqueeze(-1).unsqueeze(-1)
 
-        # 4. 将时序特征聚合 (简单平均法)
-        agg_feat = fused_feat.view(B, T, -1, H, W).mean(dim=1) # (B, embed_dim, H, W)
+        # 4. 【修改】动态调用时序聚合函数
+        # ----------------------------------------------------
+        fusion_function = TEMPORAL_FUSION_REGISTRY.get(self.temporal_fusion_mode)
+        if fusion_function is None:
+            raise ValueError(f"未知的时序融合模式: '{self.temporal_fusion_mode}'。请检查配置文件。")
         
+        # 打包所有可能需要的参数
+        fusion_kwargs = {
+            'B': B, 'T': T, 'D': self.embed_dim, 'H': H, 'W': W,
+            'attn_module': self.temporal_attn_module, # 将实例化的模块传入(步骤二需要)
+            'mask': mask # 传递mask用于处理填充的时相
+        }
+        
+        # 像插件一样调用选定的聚合函数
+        agg_feat = fusion_function(fused_feat, **fusion_kwargs) # Shape: (B, D, H, W)
+        # ----------------------------------------------------
+
+        # 5, 6, 7. 深层特征提取、上采样、重建 (与您之前的版本完全相同)
         # 5. 深层特征提取 (SwinIR Body)
         res = self.conv_after_body(self.forward_features(agg_feat)) + agg_feat
         

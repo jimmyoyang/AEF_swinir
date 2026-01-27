@@ -1,14 +1,21 @@
-# 1. 模型配置 (已适配“后置上采样”和“Anytime”理念)
+# 文件路径: configs/config_swinir.yaml
+# (最终版 - 清理、规范化、并增加了A/B实验开关)
+
+# 1. 模型配置
+# ----------------------------------------------------
 model:
   target: models.network_swinir.SwinIR
   params:
-    # --- 核心修改：在LR空间计算 ---
-    img_size: 64            # 模型主体将在64x64的LR空间进行计算
-    upscale: 3              # 上采样倍率保持不变
+    # --- 【核心修改】新增时序融合模式开关 ---
+    temporal_fusion_mode: 'mean' # <--- 步骤一，使用平均融合。未来切换到步骤二，只需改为 'attention'
+    
+    # --- 模型核心尺寸与上采样策略 ---
+    img_size: 64          # 模型主体将在64x64的LR空间进行计算
+    upscale: 3
     # --- 核心修改：启用后置上采样 ---
     upsampler: 'pixelshuffle' # 在网络末端使用PixelShuffle进行高效上采样
 
-    # --- SwinIR 核心参数 (保持不变) ---
+    # --- SwinIR 核心结构参数 ---
     window_size: 8
     embed_dim: 180
     depths: [6, 6, 6, 6]
@@ -16,75 +23,105 @@ model:
     mlp_ratio: 4
     resi_connection: '1conv'
 
-    # --- 输入/输出通道 (将由数据集动态确定) ---
-    # in_chans: 20 * 9 # 示例：20个光学时相 * 9个波段
-    # sar_chans: 20 * 2 # 示例：20个SAR时相 * 2个极化
+    # --- 输入/输出通道 ---
+    # 'in_chans' 将由 trainer.py 在运行时动态确定，无需在此处硬编码。
+    # 这使得模型能自动适应不同时相长度的数据集。
+    # out_channels: 3
     out_channels: 64
 
-    # --- 新增：可插拔的融合模块 ---
+    # --- 融合模块 (保留您的设计) ---
     fusion_module: 'lightweight_channel_attention' # 可选: 'simple_concat', 'low_rank_fusion'
 
-# 2. 数据配置 (使用新的AnytimeTemporalDataset)
+    # --- 【预留空间】为 'attention' 模式预留参数 ---
+    temporal_attention_params:
+      num_heads: 6
+# 2. 数据配置
+# ----------------------------------------------------
 data:
   train:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/processed_data/train/LR_optical" # 路径建议更明确
-      hr_dir: "./data/processed_data/train/HR"
-      sar_dir: "./data/processed_data/train/LR_sar"   # 新增SAR数据路径
-      use_sar: true
-      scale_factor: 3
-      num_lr_bands: 9
-      num_sar_bands: 2
+      # 【修改】使用您指定的绝对路径
+      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/train/LR"
+      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/train/HR"
+      # 【核心】仅使用少量样本进行快速测试
+      sample_num: 16  # <-- 使用少量样本，例如16个，确保一个batch能跑起来
 
   val:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/processed_data/val/LR_optical"
-      hr_dir: "./data/processed_data/val/HR"
-      sar_dir: "./data/processed_data/val/LR_sar"
-      use_sar: true
-      need_path: True
-      sample_num: 200
-      scale_factor: 3
-      num_lr_bands: 9
-      num_sar_bands: 2
+      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/val/LR"
+      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/val/HR"
+      sample_num: 8 # 验证集也用少量样本
 
-# 3. 训练器配置 (保持不变)
+  test: # 为推理测试预留
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/test/LR"
+      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test/processed_data_SR_10m/test/HR"
+      sample_num: 8
+# data:
+#   train:
+#     target: datapipe.datasets.AnytimeTemporalDataset
+#     params:
+#       # 【修改】路径简化，与 prepare_data_local.py 的输出完全对应
+#       lr_dir: "./data/processed_data/train/LR"
+#       hr_dir: "./data/processed_data/train/HR"
+#       scale_factor: 3
+#       num_lr_bands: 9 # 基础反射率波段数
+      
+#   val:
+#     target: datapipe.datasets.AnytimeTemporalDataset
+#     params:
+#       # 【修改】路径简化
+#       lr_dir: "./data/processed_data/val/LR"
+#       hr_dir: "./data/processed_data/val/HR"
+#       need_path: True
+#       scale_factor: 3
+#       num_lr_bands: 9
+#       # sample_num: 200 # 建议在验证时跑全量，或通过命令行覆盖
+
+#   test: # 为推理模式预留
+#     target: datapipe.datasets.AnytimeTemporalDataset
+#     params:
+#       lr_dir: "./data/processed_data/test/LR"
+#       hr_dir: "./data/processed_data/test/HR"
+#       need_path: True
+#       scale_factor: 3
+#       num_lr_bands: 9
+
+# 3. 训练器配置
+# ----------------------------------------------------
 trainer:
   target: trainer.TrainerAlphaSR
 
-# # 4. CCDC 特征配置（可选）
-# # 波段索引基于 Landsat 8 TOA: ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B10', 'B11']
-# # 所有9个波段都用于CCDC处理
-# ccdc:
-#   enabled: true  # 是否启用 CCDC 特征
-#   ccdc_dir: "./data/ccdc_features"  # CCDC 特征文件目录（相对于 train/val/test 的 lr_dir）
-#   bands_to_process:  # 所有9个波段都用于CCDC处理（从0开始，基于 Landsat 8 TOA 波段顺序）
-#     b2: 0   # B2 (Blue, 0.452-0.512 µm)
-#     b3: 1   # B3 (Green, 0.533-0.590 µm)
-#     b4: 2   # B4 (Red, 0.636-0.673 µm)
-#     b5: 3   # B5 (NIR, 0.851-0.879 µm)
-#     b6: 4   # B6 (SWIR1, 1.566-1.651 µm)
-#     b7: 5   # B7 (SWIR2, 2.107-2.294 µm)
-#     b8: 6   # B8 (Panchromatic, 0.503-0.676 µm)
-#     b10: 7  # B10 (TIRS1, 10.60-11.19 µm)
-#     b11: 8  # B11 (TIRS2, 11.50-12.51 µm)
-#   coeffs_to_extract: ['a0', 'a1', 'b1']  # 要提取的谐波系数
-#   # 说明：
-#   # - a0: 截距
-#   # - c1: 线性斜率
-#   # - a1, b1: 一阶谐波系数
-#   # - a2, b2: 二阶谐波系数
-#   # - a3, b3: 三阶谐波系数
-#   # CCDC 特征通道数 = len(bands_to_process) * len(coeffs_to_extract) = 9 * 3 = 27
+# 4. 【新增】损失函数配置
+# ----------------------------------------------------
+loss:
+  target: trainer.MixedLoss  # <-- 指向我们在 trainer.py 中定义的类
+  params:
+    ssim_weight: 1.0   # <-- SSIM损失的权重，现在可以在这里调整
+    l2_weight: 1.0     # <-- L2 (MSE) 损失的权重，现在可以在这里调整
+    data_range: 2.0    # <-- 损失函数需要知道数据的动态范围，因为我们归一化到[-1, 1]，所以范围是2.0
+    
+# 5. 【新增】特征注入开关 (用于A/B实验)
+# ----------------------------------------------------
+features:
+  # 时间特征：将“年份积日(DOY)”作为一个额外通道
+  time_band:
+    enabled: true        # <-- 开关1: 设为 false 可运行“纯SwinIR”基线实验
+  
+  # 掩膜特征：将“有效像素掩膜”作为一个额外通道
+  mask_band:
+    enabled: true        # <-- 开关2: 设为 false 可单独验证时间特征的效果
 
-
-# 5. 训练参数 (保持不变)
+# 6. 训练参数
+# ----------------------------------------------------
 train:
-  save_dir: "./training_logs/swinir_anytime_lca_run_1"
-  batch: [6, 3]
-  iterations: 10000
+  # 【修改】建议使用一个更通用的保存目录
+  save_dir: "./training_logs/anytime_swinir" 
+  batch: [1, 1] # [train_batch_size, val_batch_size]
+  iterations: 20000 # 针对大规模数据集
   lr: 0.0001
   lr_schedule: "ReduceLROnPlateau"
   lr_schedule_params:
@@ -95,12 +132,17 @@ train:
   global_seeding: True
   seed: 42
   num_workers: 48
+  
+  # 日志与保存频率
   log_freq: [100, 200, 200]
   save_freq: 1000
   val_freq: 500
-  rgb_chn: [2, 1, 0]
+  
+  # 可视化相关
+  rgb_chn: [2, 1, 0] # Landsat: Red(B4), Green(B3), Blue(B2) -> 对应索引
   local_logging: True
 
-# 6. 推理配置 (保持不变)
+# 7. 推理配置
+# ----------------------------------------------------
 inference:
   padding_offset: 16
