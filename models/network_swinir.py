@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from models.spectral_postprocessors import build_spectral_postprocessor
 
 # ==============================================================================
 # 1. 基础模块 (Mlp, window_partition, etc.)
@@ -258,6 +259,216 @@ class Upsample(nn.Sequential):
 # 【不变】保留您已有的时间编码函数。
 # 【新增】将不同的时序聚合策略封装成独立的函数，并创建注册表。
 # ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 位置编码器
+# ------------------------------------------------------------------------------
+
+class PositionEmbeddingSinCos(nn.Module):
+    """公式型 2D 位置编码，类似 DETR 中的实现。
+
+    输出张量形状为 ``(C, H, W)`` where ``C == 2 * num_pos_feats``.
+    ``num_pos_feats`` 通常设置为 ``embed_dim//2``。
+    """
+
+    def __init__(self, num_pos_feats=64, temperature=10000, normalize=False, scale=None):
+        super().__init__()
+        self.num_pos_feats = num_pos_feats
+        self.temperature = temperature
+        self.normalize = normalize
+        self.scale = scale if scale is not None else 2 * math.pi
+
+    def forward(self, size):
+        """Generate positional embedding for a grid of the given size.
+
+        Args:
+            size: tuple ``(H, W)``
+        Returns:
+            Tensor of shape ``(C, H, W)``.
+        """
+        H, W = size
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # 【安全检查】确保 H 和 W 都至少为 1
+        if H < 1 or W < 1:
+            raise ValueError(f"Image dimensions must be >= 1, but got H={H}, W={W}")
+        
+        # 创建坐标（支持任意大小，包括 H=1 或 W=1）
+        y = torch.arange(H, device=device, dtype=torch.float32)  # (H,)
+        x = torch.arange(W, device=device, dtype=torch.float32)  # (W,)
+        
+        # 原始化（可选）
+        if self.normalize:
+            y = y / max(H - 1, 1) * self.scale
+            x = x / max(W - 1, 1) * self.scale
+        
+        # 频率维度
+        num_pos_feats = self.num_pos_feats
+        dim_t = torch.arange(num_pos_feats, device=device, dtype=torch.float32)
+        dim_t = self.temperature ** (2 * (dim_t // 2) / max(num_pos_feats, 1))
+        
+        # 计算编码：y:(H,) -> (H,1,num_pos) / (num_pos,) -> (H,num_pos) 
+        # 再扩展到 (H,W,num_pos)
+        pos_y = y.unsqueeze(1) / dim_t.unsqueeze(0)  # (H, num_pos_feats)
+        pos_x = x.unsqueeze(1) / dim_t.unsqueeze(0)  # (W, num_pos_feats)
+        
+        # 应用 sin 和 cos
+        pos_y = torch.cat([pos_y[:, 0::2].sin(), pos_y[:, 1::2].cos()], dim=1)  # (H, 2*num_pos_feats)
+        pos_x = torch.cat([pos_x[:, 0::2].sin(), pos_x[:, 1::2].cos()], dim=1)  # (W, 2*num_pos_feats)
+        
+        # 广播到 2D 网格：pos_y (H, 2*num) -> (H, 1, 2*num) -> (H, W, 2*num)
+        # pos_x (W, 2*num) -> (1, W, 2*num) -> (H, W, 2*num)
+        pos_y = pos_y.unsqueeze(1).expand(H, W, -1)  # (H, W, 2*num_pos_feats)
+        pos_x = pos_x.unsqueeze(0).expand(H, W, -1)  # (H, W, 2*num_pos_feats)
+        
+        # 【验证形状一致性】确保两个张量的前两个维度匹配
+        if pos_y.shape[:2] != pos_x.shape[:2]:
+            raise RuntimeError(f"Shape mismatch before cat: pos_y.shape={pos_y.shape}, pos_x.shape={pos_x.shape}. "
+                             f"Expected both to have shape ({H}, {W}, *)")
+        
+        # 拼接 -> (H, W, 4*num_pos_feats)
+        pos = torch.cat([pos_y, pos_x], dim=2)
+        
+        # 转为 (C, H, W)
+        pos = pos.permute(2, 0, 1)
+        
+        return pos
+
+
+# ------------------------------------------------------------------------------
+# 云-光 交叉注意力模块
+# ------------------------------------------------------------------------------
+
+class CloudCrossAttention(nn.Module):
+    """云掩膜→光学特征的交叉注意力模块。
+
+    设计思路：使用 "云掩膜当提问者"，光学特征当 "知识库"。
+    Q 从 mask_prob 获得，K/V 均来自 fused_feat；通过多头注意力计算
+    每个像素位置在光学空间中的加权表示，然后与原始特征残差
+    相加以增强云区。
+
+    额外功能：
+    * ``downsample_rate`` 控制内部 attention 维度（embedding_dim//rate），
+      允许在显存受限时缩小计算。
+    * ``concat_value`` 参数可选地把云特征与光学特征拼接作为 V，
+      目前默认为 False（仅使用光特征）。
+
+    模块保证输出形状和输入 fused_feat 相同，可与现有流水线无缝对接。
+    """
+
+    def __init__(self, embed_dim, num_heads, downsample_rate=1, concat_value=False):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        # 确保 embed_dim 能被 downsample_rate 整除，避免后续除法丢失
+        assert embed_dim % downsample_rate == 0, "embed_dim must be divisible by downsample_rate"
+        self.internal_dim = embed_dim // downsample_rate
+        assert self.internal_dim % num_heads == 0, "num_heads must divide internal_dim"
+        self.concat_value = concat_value
+
+        # --------------------------------------
+        # 将 mask_prob 从 1 通道升维到 internal_dim 通道
+        # --------------------------------------
+        # 注意：只有 Q 分支使用了 ReLU 激活，K/V 直接线性投影。
+        # 这个不对称来源于实验观察：对 mask 进行非线性变换有助于
+        # 提高注意力的稀疏性；如果未来需求改变，可以将激活移除或
+        # 在所有分支统一添加。
+        self.q_conv = nn.Sequential(
+            nn.Conv2d(1, self.internal_dim, kernel_size=1),
+            nn.ReLU(inplace=True)
+        )
+
+        # K 来自 fused_feat -> internal_dim
+        self.k_conv = nn.Conv2d(embed_dim, self.internal_dim, kernel_size=1)
+
+        # 如果需要将 mask 拼接到 V 中，需要把 mask 升到 embed_dim
+        # （而不是 internal_dim），以便与 fused_feat 通道对齐后再投影到 internal_dim
+        if concat_value:
+            self.mask_channel_mapper = nn.Sequential(
+                nn.Conv2d(1, embed_dim, kernel_size=1),
+                nn.ReLU(inplace=True)
+            )
+            # V 的输入通道为 2*embed_dim -> 投影到 internal_dim
+            self.v_conv = nn.Conv2d(embed_dim * 2, self.internal_dim, kernel_size=1)
+        else:
+            # 仅使用 fused_feat 作为 V 的来源
+            self.v_conv = nn.Conv2d(embed_dim, self.internal_dim, kernel_size=1)
+
+        self.attn = nn.MultiheadAttention(self.internal_dim, num_heads, batch_first=True)
+        self.out_proj = nn.Linear(self.internal_dim, embed_dim)
+
+    def forward(self, mask_prob, fused_feat, pos_encoding=None):
+        """执行交叉注意力。
+
+        Args:
+            mask_prob: Tensor, shape (B*T, 1, H, W), 云概率图
+            fused_feat: Tensor, shape (B*T, C, H, W), 光+时融合特征
+            pos_encoding: Optional[Tensor], shape (1, internal_dim, H, W), 位置编码
+        Returns:
+            enhanced_feat: Tensor, same shape as fused_feat
+        """
+        # ensure inputs are on the same device to avoid cross‑device errors
+        mask_prob = mask_prob.to(fused_feat.device)
+
+        # fused_feat 的第一个维度实际上是 B*T，因此用 BT 更直观
+        BT, C, H, W = fused_feat.shape
+
+        # 鲁棒性检查：确保 fused_feat 通道数与 embed_dim 匹配
+        assert C == self.embed_dim, f"fused_feat channel ({C}) must equal embed_dim ({self.embed_dim})"
+
+        # ---------- Q: 由云掩膜生成 ----------
+        q_feat = self.q_conv(mask_prob)                     # (B*T, internal, H, W)
+        
+        # 【新增】如果提供了位置编码，添加到 Q 特征上（实现 Q-KV 对称性）
+        if pos_encoding is not None:
+            pos_encoding = pos_encoding.to(q_feat.device)
+            # 确保位置编码通道数与 q_feat 匹配
+            if pos_encoding.shape[1] != q_feat.shape[1]:
+                # 如果位置编码是 embed_dim，需要投影到 internal_dim
+                # 为了简单，我们直接用插值或切片来适配
+                # 这里使用线性插值的方式：先 flatten 再 interpolate
+                pe_flat = pos_encoding.flatten(2).permute(0, 2, 1)  # (1, HW, C_pe)
+                pe_resized = F.interpolate(
+                    pe_flat.permute(0, 2, 1).view(1, pos_encoding.shape[1], H, W),
+                    size=(H, W), mode='bilinear', align_corners=False
+                )
+                # 通道维度投影：使用 1x1 卷积或简单切片
+                # 简单方案：如果 C_pe > internal_dim，取前 internal_dim 个通道
+                if pos_encoding.shape[1] > q_feat.shape[1]:
+                    pos_encoding = pos_encoding[:, :q_feat.shape[1], :, :]
+                # 如果 C_pe < internal_dim，用零填充
+                elif pos_encoding.shape[1] < q_feat.shape[1]:
+                    padding = torch.zeros(
+                        1, q_feat.shape[1] - pos_encoding.shape[1], H, W,
+                        device=pos_encoding.device, dtype=pos_encoding.dtype
+                    )
+                    pos_encoding = torch.cat([pos_encoding, padding], dim=1)
+            
+            q_feat = q_feat + pos_encoding  # 添加位置编码
+        
+        q_seq = q_feat.flatten(2).permute(0, 2, 1)          # (B*T, HW, internal)
+
+        # ---------- K, V: 从 fused_feat 生成 ----------
+        k_feat = self.k_conv(fused_feat).flatten(2).permute(0, 2, 1)  # (B*T, HW, internal)
+
+        if self.concat_value:
+            # 将 mask 升到 embed_dim，再与 fused_feat 在通道维拼接，最后投影到 internal_dim
+            mask_feat = self.mask_channel_mapper(mask_prob)  # (B*T, embed_dim, H, W)
+            v_base = torch.cat([mask_feat, fused_feat], dim=1)  # (B*T, 2*embed_dim, H, W)
+            v_feat = self.v_conv(v_base).flatten(2).permute(0, 2, 1)
+        else:
+            v_feat = self.v_conv(fused_feat).flatten(2).permute(0, 2, 1)
+
+        # ---------- 多头 attention ----------
+        attn_out, _ = self.attn(q_seq, k_feat, v_feat)      # (B*T, HW, internal)
+
+        # ---------- 恢复空间结构并残差 ----------
+        out_feat = self.out_proj(attn_out)                  # (B*T, HW, embed_dim)
+        out_feat = out_feat.permute(0, 2, 1).view(BT, C, H, W)
+        enhanced = fused_feat + out_feat                    # 残差连接
+        return enhanced
+
+
 def get_timestamp_encoding(timestamps, encoding_dim=64):
     """
     为一批时间戳（例如，年内日）生成正弦/余弦位置编码。
@@ -276,28 +487,62 @@ def temporal_fusion_mean(fused_feat, B, T, D, H, W, **kwargs):
     步骤一：基线策略。使用简单的平均池化进行时序聚合。
     支持mask，只对有效时相进行平均。
     """
+    # 确保 fused_feat 是 (B*T, D, H, W) 格式
+    if fused_feat.dim() != 4:
+        raise ValueError(f"fused_feat should be 4D (B*T, D, H, W), but got shape {fused_feat.shape}")
+    
+    # 重塑为 (B, T, D, H, W)
+    fused_feat_reshaped = fused_feat.view(B, T, D, H, W)  # (B, T, D, H, W)
+    
     mask = kwargs.get('mask', None)
     if mask is not None:
-        # 只对有效时相进行平均
-        fused_feat_reshaped = fused_feat.view(B, T, D, H, W)  # (B, T, D, H, W)
+        # 确保 mask 是 (B, T) 格式
+        if mask.dim() == 1:
+            mask = mask.unsqueeze(0)  # (T,) -> (1, T)
+        elif mask.dim() == 2:
+            pass  # 已经是 (B, T)
+        else:
+            raise ValueError(f"mask should be 1D (T,) or 2D (B, T), but got shape {mask.shape}")
+        
+        # 确保 mask 的 batch 维度匹配
+        if mask.shape[0] != B:
+            raise ValueError(f"mask batch dimension ({mask.shape[0]}) doesn't match B ({B})")
+        if mask.shape[1] != T:
+            raise ValueError(f"mask time dimension ({mask.shape[1]}) doesn't match T ({T})")
+        
         # 将无效时相置为0，然后计算平均
-        masked_feat = fused_feat_reshaped * mask.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)  # (B, T, D, H, W)
-        sum_feat = masked_feat.sum(dim=1)  # (B, D, H, W)
-        valid_count = mask.sum(dim=1, keepdim=True).clamp(min=1)  # (B, 1) 避免除零
-        return sum_feat / valid_count.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        # mask: (B, T) -> (B, T, 1, 1, 1) 用于广播
+        mask_expanded = mask.view(B, T, 1, 1, 1)  # (B, T, 1, 1, 1)
+        masked_feat = fused_feat_reshaped * mask_expanded  # (B, T, D, H, W)
+        sum_feat = masked_feat.sum(dim=1)  # (B, D, H, W) - 在时间维度上求和
+        valid_count = mask.sum(dim=1, keepdim=False).clamp(min=1)  # (B,) 避免除零
+        # 扩展 valid_count 到 (B, 1, 1, 1) 用于广播除法
+        valid_count = valid_count.view(B, 1, 1, 1)  # (B, 1, 1, 1)
+        result = sum_feat / valid_count  # (B, D, H, W)
     else:
-        return fused_feat.view(B, T, D, H, W).mean(dim=1)
+        # 没有 mask，直接对时间维度求平均
+        result = fused_feat_reshaped.mean(dim=1)  # (B, D, H, W)
+    
+    # 确保输出是 4D (B, D, H, W)
+    if result.dim() != 4:
+        raise ValueError(f"temporal_fusion_mean should return 4D tensor (B, D, H, W), but got shape {result.shape}")
+    
+    return result
 
 def temporal_fusion_attention(fused_feat, B, T, D, H, W, **kwargs):
     """
     【预留空间】步骤二：先进策略。使用时序注意力进行聚合。
     """
-    # TODO: 在这里实现您的注意力逻辑。
-    # 示例:
-    # attn_module = kwargs.get('attn_module')
-    # if attn_module is not None:
-    #     # ... 实现加权融合
-    #     pass
+    attn_module = kwargs.get('attn_module')
+    if attn_module is not None:
+        # fused_feat: (B*T, D, H, W) -> reshape for attention
+        feat = fused_feat.view(B, T, D, H, W).transpose(1, 2).contiguous()  # B,D,T,H,W
+        feat = feat.view(B * D, T, H * W).transpose(1, 2)  # (B*D)*(H*W) tokens
+        # 这里仅示范调用，如果未来需要，可根据 attn_module 实现具体逻辑
+        feat = attn_module(feat)
+        # 回退到原始形状
+        feat = feat.transpose(1, 2).view(B, D, T, H, W).transpose(1, 2).contiguous()
+        return feat.view(B * T, D, H, W)
 
     # 在未实现前，打印警告并回退到平均融合，以保证代码可运行
     print("【警告】temporal_fusion_attention 尚未实现，暂时回退到平均融合。")
@@ -325,6 +570,17 @@ class SwinIR(nn.Module):
                  # 【新增】接收新的配置参数，并提供默认值
                  temporal_fusion_mode='mean',
                  temporal_attention_params=None,
+                 # cross-attention / positional embedding
+                 use_cross_attention=False,
+                 cross_num_heads=6,
+                 cross_downsample_rate=1,
+                 cross_concat_value=False,
+                 use_pos_emb=False,
+                 use_learnable_pos_emb=False,
+                 pos_emb_dim=0,
+                 use_spectral_postprocessor=False,
+                 spectral_postprocessor_type='gumbel_routing',
+                 spectral_postprocessor_params=None,
                  **kwargs):
 
         super(SwinIR, self).__init__()
@@ -332,6 +588,31 @@ class SwinIR(nn.Module):
         self.upscale = upscale
         self.embed_dim = embed_dim
         self.temporal_fusion_mode = temporal_fusion_mode
+
+        # --- cross-attention & positional embedding 配置 ---
+        self.use_cross_attention = use_cross_attention
+        self.cross_num_heads = cross_num_heads
+        self.cross_downsample_rate = cross_downsample_rate
+        self.cross_concat_value = cross_concat_value
+        self.use_pos_emb = use_pos_emb
+        self.use_learnable_pos_emb = use_learnable_pos_emb
+        # pos_emb_dim==0 表示与 embed_dim 相同
+        self.pos_emb_dim = pos_emb_dim or embed_dim
+        self.use_spectral_postprocessor = use_spectral_postprocessor
+
+        if self.use_pos_emb:
+            if self.use_learnable_pos_emb:
+                # 学习型位置编码
+                self.pos_emb = nn.Parameter(torch.zeros(1, self.pos_emb_dim, img_size, img_size))
+            else:
+                # 公式型 sin/cos 编码
+                self.pos_encoder = PositionEmbeddingSinCos(num_pos_feats=self.pos_emb_dim // 2)
+
+        if self.use_cross_attention:
+            self.cross_attn = CloudCrossAttention(embed_dim=embed_dim,
+                                                  num_heads=self.cross_num_heads,
+                                                  downsample_rate=self.cross_downsample_rate,
+                                                  concat_value=self.cross_concat_value)
 
         # --- 2. 输入嵌入层 (与您之前的版本保持不变) ---
         self.conv_first = nn.Conv2d(in_chans, embed_dim, 3, 1, 1)
@@ -376,6 +657,17 @@ class SwinIR(nn.Module):
         # --- 6. 最终图像重建 ---
         self.conv_last = nn.Conv2d(embed_dim, out_channels, 3, 1, 1)
 
+        # --- 6.5 可选光谱后处理模块 ---
+        self.spectral_postprocessor = None
+        if self.use_spectral_postprocessor:
+            pp_params = spectral_postprocessor_params or {}
+            if 'n_channels' not in pp_params:
+                pp_params['n_channels'] = out_channels
+            self.spectral_postprocessor = build_spectral_postprocessor(
+                spectral_postprocessor_type,
+                pp_params,
+            )
+
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -388,7 +680,21 @@ class SwinIR(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def forward_features(self, x):
-        # import pdb;pdb.set_trace()
+        # x 应该是 4D (B, C, H, W) 格式
+        # 如果意外收到 5D，先处理成 4D
+        if x.dim() == 5:
+            # (B, T, C, H, W) -> 取第一个时间步或平均
+            B, T, C, H, W = x.shape
+            x = x.mean(dim=1)  # (B, C, H, W) - 平均池化时间维度
+            # 确保结果是 4D
+            if x.dim() != 4:
+                raise ValueError(f"After reducing 5D input, expected 4D tensor, but got {x.dim()}D with shape {x.shape}")
+        elif x.dim() != 4:
+            raise ValueError(f"Unexpected input dimension: {x.dim()}, expected 4D (B,C,H,W), got shape {x.shape}")
+        
+        # 确保 x 是 4D (B, C, H, W)
+        assert x.dim() == 4, f"forward_features input must be 4D, got {x.dim()}D with shape {x.shape}"
+        
         x_size = (x.shape[2], x.shape[3])
         x = self.patch_embed(x)
         x = self.pos_drop(x)
@@ -396,6 +702,9 @@ class SwinIR(nn.Module):
             x = layer(x, x_size)
         x = self.norm(x)
         x = self.patch_unembed(x, x_size)
+        
+        # 确保输出也是 4D
+        assert x.dim() == 4, f"forward_features output must be 4D, got {x.dim()}D with shape {x.shape}"
         return x
 
     def forward(self, data):
@@ -405,17 +714,34 @@ class SwinIR(nn.Module):
         # 获取数据，支持单个样本和batch
         lr_seq = data['lr_sequence']  # 可能是 (T, C, H, W) 或 (B, T, C, H, W)
         timestamps = data['timestamps']  # 可能是 (T,) 或 (B, T)
-        mask = data.get('mask', None)  # 可能是 (T,) 或 (B, T)，指示哪些时相是有效的
 
-        # 处理单个样本的情况：添加batch维度
+        mask = data.get('mask', None)  # 可能是 (T,) 或 (B, T)，指示哪些时相是有效的
+        mask_prob = data.get('mask_prob', None)  # 可能是 (T, 1, H, W) 或 (B, T, 1, H, W)
+
+        # 处理单个样本的情况：添加 batch 维度
         if lr_seq.dim() == 4:  # (T, C, H, W)
             lr_seq = lr_seq.unsqueeze(0)  # (1, T, C, H, W)
             timestamps = timestamps.unsqueeze(0)  # (1, T)
             if mask is not None:
                 mask = mask.unsqueeze(0)  # (1, T)
+            if mask_prob is not None:
+                # 可能为 (T,1,H,W) -> (1,T,1,H,W)
+                mask_prob = mask_prob.unsqueeze(0)
             B, T, C, H, W = lr_seq.shape
-        else:  # 已经是batch格式 (B, T, C, H, W)
+        else:  # 已经是 batch 格式 (B, T, C, H, W)
             B, T, C, H, W = lr_seq.shape
+            if mask_prob is not None:
+                # 如果输入是 (B*T,1,H,W)，尝试恢复
+                if mask_prob.dim() == 4 and mask_prob.shape[0] == B * T:
+                    mask_prob = mask_prob.view(B, T, 1, H, W)
+
+        # 如果出现单个 batch 时重复 mask_prob
+        if mask_prob is not None and mask_prob.dim() == 5 and mask_prob.shape[0] != B:
+            mask_prob = mask_prob.repeat(B, 1, 1, 1, 1)
+
+        # 确保形状为 (B, T, 1, H, W)
+        if mask_prob is not None:
+            assert mask_prob.dim() == 5, f"mask_prob should be 5D but got {mask_prob.shape}"
 
         # 1, 2, 3. 展平、嵌入、融合 (与您之前的版本完全相同)
         # 1. 将序列数据展平，以便进行2D卷积
@@ -429,7 +755,35 @@ class SwinIR(nn.Module):
         time_feat = self.time_embed(time_enc) # (B*T, embed_dim)
         fused_feat = optical_feat + time_feat.unsqueeze(-1).unsqueeze(-1)
 
-        # 4. 【修改】动态调用时序聚合函数
+        # 3.5 位置编码（如果启用）
+        if self.use_pos_emb:
+            if self.use_learnable_pos_emb:
+                pe = self.pos_emb
+            else:
+                pe = self.pos_encoder((H, W)).unsqueeze(0)  # (1, C, H, W)
+            fused_feat = fused_feat + pe.to(fused_feat.device)
+
+        # 4. 云-光交叉注意力模块（在时序聚合前）
+        enhanced_feat = fused_feat
+        if self.use_cross_attention and mask_prob is not None:
+            # 将 mask_prob 拉平成 (B*T,1,H,W)
+            mp = mask_prob.view(B * T, 1, H, W)
+            
+            # 【新增】如果启用位置编码，准备传递给 cross_attn（实现 Q-KV 对称性）
+            # 修改原因：之前只有 fused_feat (K/V) 有位置编码，mask_prob (Q) 没有
+            # 这会导致注意力计算时信息不对称，影响跨模态融合效果
+            # 注意：位置编码在 CloudCrossAttention 内部的 q_conv 之后添加，避免通道数不匹配
+            pe_for_mask = None
+            if self.use_pos_emb:
+                # 获取位置编码（与 fused_feat 使用的相同）
+                if self.use_learnable_pos_emb:
+                    pe_for_mask = self.pos_emb
+                else:
+                    pe_for_mask = self.pos_encoder((H, W)).unsqueeze(0)  # (1, C, H, W)
+            
+            enhanced_feat = self.cross_attn(mp, fused_feat, pos_encoding=pe_for_mask)
+
+        # 5. 【修改】动态调用时序聚合函数
         # ----------------------------------------------------
         fusion_function = TEMPORAL_FUSION_REGISTRY.get(self.temporal_fusion_mode)
         if fusion_function is None:
@@ -443,11 +797,24 @@ class SwinIR(nn.Module):
         }
         
         # 像插件一样调用选定的聚合函数
-        agg_feat = fusion_function(fused_feat, **fusion_kwargs) # Shape: (B, D, H, W)
+        agg_feat = fusion_function(enhanced_feat, **fusion_kwargs) # Shape: (B, D, H, W)
         # ----------------------------------------------------
+
+        # 【安全检查】确保 agg_feat 是 4D (B, D, H, W)
+        if agg_feat.dim() != 4:
+            raise ValueError(
+                f"temporal fusion function returned {agg_feat.dim()}D tensor with shape {agg_feat.shape}, "
+                f"but expected 4D (B, D, H, W). Please check the fusion function implementation."
+            )
+        if agg_feat.shape[0] != B or agg_feat.shape[1] != self.embed_dim:
+            raise ValueError(
+                f"temporal fusion output shape mismatch: got {agg_feat.shape}, "
+                f"expected (B={B}, D={self.embed_dim}, H={H}, W={W})"
+            )
 
         # 5, 6, 7. 深层特征提取、上采样、重建 (与您之前的版本完全相同)
         # 5. 深层特征提取 (SwinIR Body)
+        # agg_feat 应该是 (B, D, H, W) 格式，直接传入 forward_features
         res = self.conv_after_body(self.forward_features(agg_feat)) + agg_feat
         
         # 6. 后置上采样
@@ -455,5 +822,8 @@ class SwinIR(nn.Module):
         
         # 7. 最终重建
         x = self.conv_last(x)
+
+        if self.spectral_postprocessor is not None:
+            x = self.spectral_postprocessor(x)
         
         return x

@@ -1,0 +1,14 @@
+group,exp_name,label,psnr,ssim,best_iter,run_dir
+Group 1,ablation_1b_baseline_plus_timeband,1b +time_band,14.1225,0.3563,600,training_logs/experiments/ablation_1b_baseline_plus_timeband/2026-03-05_02-01-43
+Group 1,ablation_1c_baseline_plus_maskband,1c +mask_band(hard),12.1931,0.2217,0,training_logs/experiments/ablation_1c_baseline_plus_maskband/2026-03-05_02-31-52
+Group 1,ablation_1d_baseline_plus_timeband_maskband,1d +time+mask(hard),14.2657,0.3852,300,training_logs/experiments/ablation_1d_baseline_plus_timeband_maskband/2026-03-05_03-16-45
+Group 1,config_true_baseline,1a true baseline,12.2797,0.2647,400,training_logs/experiments/config_true_baseline/2026-03-05_01-18-04
+Group 2,ablation_2b_with_cross_attention_no_posenc,2b +cross_attention,14.473,0.3586,500,training_logs/experiments/ablation_2b_with_cross_attention_no_posenc/2026-03-05_03-47-29
+Group 2,ablation_2c_cross_downsample_rate_2,2c cross_downsample=2,14.5803,0.384,600,training_logs/experiments/ablation_2c_cross_downsample_rate_2/2026-03-05_04-20-43
+Group 3,ablation_3a_with_cross_attention_posenc_sincos,3a +pos(sincos),13.5138,0.3523,100,training_logs/experiments/ablation_3a_with_cross_attention_posenc_sincos/2026-03-05_04-30-45
+Group 3,ablation_3b_with_cross_attention_posenc_learnable,3b +pos(learnable),14.6694,0.3556,100,training_logs/experiments/ablation_3b_with_cross_attention_posenc_learnable/2026-03-05_05-03-51
+Group 3,ablation_3c_with_cross_attention_posenc_concat,3c +pos(concat),14.5684,0.371,800,training_logs/experiments/ablation_3c_with_cross_attention_posenc_concat/2026-03-05_05-36-51
+Group 3,ablation_3d_posenc_without_cross_attention,3d +pos(no-cross),13.3887,0.354,100,training_logs/experiments/ablation_3d_posenc_without_cross_attention/2026-03-05_06-10-03
+Group 4,ablation_4a_soft_mask_test,4a soft-mask test,14.499,0.3585,500,training_logs/experiments/ablation_4a_soft_mask_test/2026-03-04_07-55-40
+Group 4,ablation_4b_advanced_processor_soft_simplified,4b soft + advanced off,14.5181,0.3538,100,training_logs/experiments/ablation_4b_advanced_processor_soft_simplified/2026-03-05_06-19-37
+Unknown,ablation_4c_mask_reduce_prob_or,ablation_4c_mask_reduce_prob_or,14.5117,0.3553,600,training_logs/experiments/ablation_4c_mask_reduce_prob_or/2026-03-04_10-02-40
