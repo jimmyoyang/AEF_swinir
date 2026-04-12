@@ -1,0 +1,90 @@
+model:
+  target: models.network_swinir.SwinIR
+  params:
+    temporal_fusion_mode: 'mean'
+    img_size: 64
+    upscale: 3
+    upsampler: 'pixelshuffle'
+    window_size: 8
+    embed_dim: 180
+    depths: [6, 6, 6, 6]
+    num_heads: [6, 6, 6, 6]
+    mlp_ratio: 4
+    resi_connection: '1conv'
+    out_channels: 64
+    fusion_module: 'lightweight_channel_attention'
+    use_cross_attention: true
+    cross_num_heads: 6
+    cross_downsample_rate: 1
+    cross_concat_value: false
+    use_pos_emb: true
+    use_learnable_pos_emb: false
+    pos_emb_dim: 0
+    temporal_attention_params:
+      num_heads: 6
+
+data:
+  train:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: "./data/processed_data/train/LR"
+      hr_dir: "./data/processed_data/train/HR"
+      sample_num: 16
+  val:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: "./data/processed_data/val/LR"
+      hr_dir: "./data/processed_data/val/HR"
+      sample_num: 8
+  test:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: "./data/processed_data/test/LR"
+      hr_dir: "./data/processed_data/test/HR"
+      sample_num: 8
+
+trainer:
+  target: trainer.TrainerAlphaSR
+
+loss:
+  target: trainer.MixedLoss
+  params:
+    ssim_weight: 1.0
+    l2_weight: 1.0
+    data_range: 2.0
+
+features:
+  time_band:
+    enabled: true
+  mask_band:
+    enabled: true
+    use_advanced_processor: false
+    processor:
+      mask_type: "hard"
+      use_spatial_smoothing: true
+      smoothing_sigma: 1.0
+      soft_mask_sigma: 2.0
+
+train:
+  save_dir: "./training_logs/experiments/ablation_3a_with_cross_attention_posenc_sincos"
+  batch: [1, 1]
+  iterations: 5000
+  lr: 0.0001
+  lr_schedule: "ReduceLROnPlateau"
+  lr_schedule_params:
+    patience: 5
+    factor: 0.5
+  lr_min: 0.000001
+  weight_decay: 0.0
+  global_seeding: true
+  seed: 42
+  num_workers: 4
+  log_freq: [100, 200, 200]
+  save_freq: 1000
+  val_freq: 50
+  rgb_chn: [2, 1, 0]
+  local_logging: true
+
+
+inference:
+  padding_offset: 16

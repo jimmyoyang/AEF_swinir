@@ -34,9 +34,18 @@ class Predictor:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.configs = configs
         
-        # --- 核心：动态注入输入通道数 ---
-        self.configs.model.params.in_chans = in_chans
-        print(f"[Predictor] Initializing model '{self.configs.model.target}' with in_chans={in_chans}")
+        # --- 核心：根据模型类型动态注入输入通道数 ---
+        model_name = self.configs.model.target.split('.')[-1].lower()
+        if 'srcnn' in model_name:
+            self.configs.model.params.in_channels = in_chans
+            if 'in_chans' in self.configs.model.params:
+                del self.configs.model.params['in_chans']
+            print(f"[Predictor] Initializing SRCNN model with in_channels={in_chans}")
+        else:
+            self.configs.model.params.in_chans = in_chans
+            if 'in_channels' in self.configs.model.params:
+                del self.configs.model.params['in_channels']
+            print(f"[Predictor] Initializing model '{self.configs.model.target}' with in_chans={in_chans}")
         
         # --- 实例化模型（兼容hydra和原有工具函数） ---
         try:
@@ -139,6 +148,26 @@ class Predictor:
         
         except Exception as e:
             print(f"[Error] Failed to save prediction: {e}")
+
+    @torch.no_grad()
+    def run_inference(self, test_loader, out_dir):
+        """批量推理并保存结果（供 main.py 的 test 模式直接调用）。"""
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        pbar = tqdm(test_loader, desc=f"Inference on {out_dir.name}")
+        for data_batch in pbar:
+            try:
+                predictions = self.run_on_batch(data_batch)
+                original_hr_path = data_batch['path'][0] if 'path' in data_batch else None
+                output_filename = f"pred_{Path(original_hr_path).name}" if original_hr_path else "pred.tif"
+                output_path = out_dir / output_filename
+                self.save_prediction(predictions, original_hr_path, output_path)
+            except Exception as e:
+                print(f"\n⚠️ WARNING: Failed to process batch for {data_batch.get('path', ['N/A'])[0]}. Error: {e}")
+                continue
+
+        print(f"\n🎉 Inference complete! Results saved to: {out_dir}")
 
 # ==============================================================================
 # 2. 供main.py调用的推理函数 (保留兼容性)

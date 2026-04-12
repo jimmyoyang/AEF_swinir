@@ -8,10 +8,12 @@ AEF_swinir/
 ├── trainer.py                        # Trainer类（包含best_ckpt_manager集成）
 ├── run_ablation_experiments_extended.sh  # ⭐ 主要脚本：批量运行消融配置
 ├── train.sh                          # 快速脚本：单配置训练
-├── check_iterations.sh               # 查看配置中的 iterations 值
 ├── scripts/
 │   ├── best_ckpt_manager.py          # 最佳权重管理器
-│   ├── check_and_generate_configs.py # 配置检查器
+│   ├── validate_ablation_configs.py  # 配置一致性检查器
+│   ├── run_ablation_4c_mask_reduce_prob_or.sh
+│   ├── run_ablation_4d_mask_temporal_loss.sh
+│   ├── run_ablation_4c_4d_and_analyze.sh
 │   └── update_iterations.py          # 更新 iterations 的工具
 ├── configs/
 │   ├── ablation/config_true_baseline.yaml
@@ -27,21 +29,21 @@ AEF_swinir/
 
 ## 使用方式（简化版）
 
-只需一个命令，脚本自动修改所有 YAML 配置的 iterations：
+脚本支持参数：`GPU_ID` 和可选 `ITER_OVERRIDE`。
 
 ### 快速测试（100迭代）
 ```bash
-bash run_ablation_experiments_extended.sh
+bash run_ablation_experiments_extended.sh 0 100
 ```
 
 ### 正式训练（5000迭代）
 ```bash
-bash run_ablation_experiments_extended.sh
+bash run_ablation_experiments_extended.sh 0 5000
 ```
 
 ### 大规模训练（10000迭代）
 ```bash
-bash run_ablation_experiments_extended.sh
+bash run_ablation_experiments_extended.sh 0 10000
 ```
 
 **参数说明：**
@@ -50,21 +52,23 @@ bash run_ablation_experiments_extended.sh
 
 脚本会按预设顺序运行 `configs/ablation/*.yaml` 中的消融配置。
 
+### 4c/4d 接力 + 自动分析
+```bash
+bash scripts/run_ablation_4c_4d_and_analyze.sh 0
+```
+
 ## 工作流示例
 
 ### 快速验证阶段
 ```bash
 # 设置 100 迭代，快速验证系统是否正常
-bash run_ablation_experiments_extended.sh
-
-# 查看当前配置的 iterations
-bash check_iterations.sh
+bash run_ablation_experiments_extended.sh 0 100
 ```
 
 ### 正式训练阶段
 ```bash
 # 设置 5000 迭代，进行正式训练
-bash run_ablation_experiments_extended.sh
+bash run_ablation_experiments_extended.sh 0 5000
 
 # 训练完成后查看最佳权重
 python scripts/best_ckpt_manager.py list
@@ -72,7 +76,7 @@ python scripts/best_ckpt_manager.py list
 
 ## 主要特性
 
-- **集中管理**：脚本统一控制所有 5 个模型的配置和 iterations
+- **集中管理**：脚本统一控制多个消融配置和 iterations
 - **简单参数**：只需指定 GPU 和 iterations 两个参数
 - **批量执行**：脚本按预设顺序执行 `configs/ablation/*.yaml`
 - **最佳权重管理**：
@@ -86,25 +90,16 @@ python scripts/best_ckpt_manager.py list
 
 ## 查看和修改 iterations
 
-### 远程查看当前 iterations
+### 批量查看当前 iterations
 ```bash
-bash check_iterations.sh
-```
-
-输出示例：
-```
-config_true_baseline.yaml            iterations = 1000
-ablation_2b_with_cross_attention...  iterations = 1000
-ablation_3a_with_cross_attention...  iterations = 1000
-ablation_3b_with_cross_attention...  iterations = 1000
-ablation_3c_with_cross_attention...  iterations = 1000
+grep -R "^[[:space:]]*iterations:" configs/ablation/*.yaml
 ```
 
 ### 3种方式修改 iterations
 
 **方式1：通过脚本（推荐）**
 ```bash
-bash run_ablation_experiments_extended.sh
+bash run_ablation_experiments_extended.sh 0 100
 ```
 
 **方式2：仅修改不训练（批量替换 YAML）**
@@ -131,40 +126,45 @@ python main.py --cfg_path configs/ablation/config_true_baseline.yaml
 
 # 新增：indicating_mask 聚合策略优化试验（独立分支）
 bash scripts/run_ablation_4c_mask_reduce_prob_or.sh 0
+
+# 新增：时相级 loss 试验（独立分支）
+bash scripts/run_ablation_4d_mask_temporal_loss.sh 0
 ```
 
-### 新增试验说明：ablation_4c
+### 新增试验说明：ablation_4c / ablation_4d
 
 **目的**：在单帧输出模型下，优化 `indicating_mask` 的时间维聚合策略。
 
 **特点**：
 - 完全独立：使用新 trainer（`trainer_mask_ablation.py`），不修改原有代码
-- 可配置：支持 `prob_or` / `max` / `mean` 三种策略
+- 4c 可配置：支持 `prob_or` / `max` / `mean` 三种策略
+- 4d 更细粒度：每时相单独计算 masked loss，再做时序聚合
 - 可回滚：试验结果不满意可直接删除，不影响其他实验
 
 **运行命令**：
 ```bash
 # GPU 0 运行（默认 5000 iterations）
 bash scripts/run_ablation_4c_mask_reduce_prob_or.sh 0
+bash scripts/run_ablation_4d_mask_temporal_loss.sh 0
 
 # 查看日志
-tail -f training_logs/experiments/ablation_4c_mask_reduce_prob_or/*/training.log
+tail -f training_logs/experiments/ablation_4d_mask_temporal_loss/*/training.log
 ```
 
-**对比链路**：建议 `2b → 4a → 4c`，验证软掩膜 + 聚合策略的叠加收益。
+**对比链路**：建议 `2b → 4a → 4c → 4d`，验证软掩膜 + 聚合策略 + 时相级 loss 的叠加收益。
 
-### 一键对比建议（4c 相关）
+### 一键对比建议（4c/4d 相关）
 
 ```bash
-# 1) 运行 4c（prob_or）
-bash scripts/run_ablation_4c_mask_reduce_prob_or.sh 0
+# 1) 接力运行 4c + 4d + 分析
+bash scripts/run_ablation_4c_4d_and_analyze.sh 0
 
 # 2) 分析全量结果
 python scripts/analyze_ablation_results.py
 python scripts/analyze_ablation_final.py
 
-# 3) 重点查看 2b / 4a / 4c 三组对照
-grep -E "ablation_2b|ablation_4a|ablation_4c" ablation_summary_latest.csv
+# 3) 重点查看 2b / 4a / 4c / 4d 四组对照
+grep -E "ablation_2b|ablation_4a|ablation_4c|ablation_4d" ablation_summary_latest.csv
 ```
 
 > 建议在同训练预算（同 iterations）下对比，4c 预期为稳定性小幅提升（约 +0.1~+0.3 dB）。
@@ -184,16 +184,16 @@ git checkout configs/ablation/*.yaml
 
 ### 问题：iterations 没有正确更新
 ```bash
-# 检查当前设置
-bash check_iterations.sh
-
 # 强制更新（批量替换）
 find configs/ablation -name '*.yaml' -type f -exec sed -i 's/^\([[:space:]]*\)iterations: .*/\1iterations: 100/' {} +
+
+# 复查
+grep -R "^[[:space:]]*iterations:" configs/ablation/*.yaml
 ```
 
 ### 问题：想改回原始 iterations（5000）
 ```bash
-bash run_ablation_experiments_extended.sh
+bash run_ablation_experiments_extended.sh 0 5000
 # 或批量恢复为 5000
 find configs/ablation -name '*.yaml' -type f -exec sed -i 's/^\([[:space:]]*\)iterations: .*/\1iterations: 5000/' {} +
 ```

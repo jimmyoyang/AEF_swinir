@@ -15,32 +15,50 @@ data:
     params:
       lr_dir: "./data/processed_data/train/LR"
       hr_dir: "./data/processed_data/train/HR"
+      sample_num: 0  
+      enable_hr_zero_filter: true
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: "./patch_stats.log"
+      cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/cache/train"
+      use_tile_cache: true        
       # scale_factor: 3
   val:
     target: datapipe.datasets.PreprocessedTileDataset
     params:
       lr_dir: "./data/processed_data/val/LR"
       hr_dir: "./data/processed_data/val/HR"
+      sample_num: 8
+      enable_hr_zero_filter: true
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: "./patch_stats.log"
       need_path: True
-      sample_num: 200
+      cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/cache/val"
+      use_tile_cache: true
       # scale_factor: 3
   test:
     target: datapipe.datasets.PreprocessedTileDataset
     params:
       lr_dir: "./data/processed_data/test/LR" 
       hr_dir: "./data/processed_data/test/HR"
+      enable_hr_zero_filter: true
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: "./patch_stats.log"
       need_path: True
+      sample_num: 8   
+      # cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/cache/test"
+      # use_tile_cache: true
+      # scale_factor: 3
       # scale_factor: 3
 
 # 3. 训练器配置
 trainer:
-  target: trainer.TrainerAlphaSR
+  target: trainer_srcnn.TrainerSRCNN
 
 # 4. 训练参数
 train:
   save_dir: "./training_logs/srcnn_b2_3bands_run_1" # SRCNN的独立日志目录
-  batch: [2, 1]
-  iterations: 10000
+  batch: [1, 1]
+  iterations: 2000
   lr: 0.0001 
   lr_schedule: "ReduceLROnPlateau"
   lr_schedule_params:
@@ -50,7 +68,17 @@ train:
   weight_decay: 0.0
   global_seeding: True
   seed: 42
-  num_workers: 4
+  num_workers: 32
+  val_num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+  amp: true
+  amp_dtype: bf16
+  cudnn_benchmark: true
+  allow_tf32: true
+  matmul_precision: "high"
+  channels_last: true
   log_freq: [100, 200, 200]
   save_freq: 1000
   val_freq: 500

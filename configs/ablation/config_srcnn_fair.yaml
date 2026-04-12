@@ -1,0 +1,60 @@
+model:
+  target: models.model_b2.SRCNN_B2
+  params:
+    in_channels: 9
+    out_channels: 3
+
+data:
+  train:
+    target: datapipe.datasets.PreprocessedTileDataset
+    params:
+      lr_dir: "./data/Cloud_test/processed_data_SR_10m/train/LR"
+      hr_dir: "./data/Cloud_test/processed_data_SR_10m/train/HR"
+      sample_num: 16
+  val:
+    target: datapipe.datasets.PreprocessedTileDataset
+    params:
+      lr_dir: "./data/Cloud_test/processed_data_SR_10m/val/LR"
+      hr_dir: "./data/Cloud_test/processed_data_SR_10m/val/HR"
+      sample_num: 8
+      need_path: true
+  test:
+    target: datapipe.datasets.PreprocessedTileDataset
+    params:
+      lr_dir: "./data/Cloud_test/processed_data_SR_10m/test/LR"
+      hr_dir: "./data/Cloud_test/processed_data_SR_10m/test/HR"
+      sample_num: 8
+      need_path: true
+
+trainer:
+  target: trainer_srcnn.TrainerSRCNN
+
+loss:
+  target: trainer_srcnn.MixedLoss
+  params:
+    ssim_weight: 1.0
+    l2_weight: 1.0
+    data_range: 2.0
+
+train:
+  save_dir: "./training_logs/experiments/config_srcnn_fair"
+  batch: [1, 1]
+  iterations: 2000
+  lr: 0.0001
+  lr_schedule: "ReduceLROnPlateau"
+  lr_schedule_params:
+    patience: 5
+    factor: 0.5
+  lr_min: 0.000001
+  weight_decay: 0.0
+  global_seeding: true
+  seed: 42
+  num_workers: 4
+  log_freq: [100, 200, 200]
+  save_freq: 1000
+  val_freq: 50
+  rgb_chn: [2, 1, 0]
+  local_logging: true
+
+inference:
+  padding_offset: 16

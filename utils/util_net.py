@@ -83,9 +83,23 @@ def measure_time(net, inputs, num_forward=100):
 
     return start.elapsed_time(end) / 1000
 
-def reload_model(model, ckpt):
-    module_flag = list(ckpt.keys())[0].startswith('module.')
-    compile_flag = '_orig_mod' in list(ckpt.keys())[0]
+def reload_model(model, ckpt, strict=True):
+    """
+    Reload model weights from checkpoint dict.
+
+    strict=True: require every model key to exist in ckpt (legacy behavior).
+    strict=False: load matched keys only, skip missing/shape-mismatch keys.
+    """
+    if not isinstance(ckpt, dict) or len(ckpt) == 0:
+        raise AssertionError('Invalid checkpoint state_dict')
+
+    first_key = list(ckpt.keys())[0]
+    module_flag = first_key.startswith('module.')
+    compile_flag = '_orig_mod' in first_key
+
+    missing_keys = []
+    shape_mismatch = []
+    loaded = 0
 
     for source_key, source_value in model.state_dict().items():
         target_key = source_key
@@ -94,5 +108,29 @@ def reload_model(model, ckpt):
         if module_flag and (not source_key.startswith('module')):
             target_key = 'module.' + target_key
 
-        assert target_key in ckpt
-        source_value.copy_(ckpt[target_key])
+        if target_key not in ckpt:
+            missing_keys.append(source_key)
+            continue
+
+        target_value = ckpt[target_key]
+        if source_value.shape != target_value.shape:
+            shape_mismatch.append((source_key, tuple(source_value.shape), tuple(target_value.shape)))
+            continue
+
+        source_value.copy_(target_value)
+        loaded += 1
+
+    if strict and (missing_keys or shape_mismatch):
+        parts = []
+        if missing_keys:
+            parts.append(f"missing={len(missing_keys)} first={missing_keys[0]}")
+        if shape_mismatch:
+            k, s1, s2 = shape_mismatch[0]
+            parts.append(f"shape_mismatch={len(shape_mismatch)} first={k} model={s1} ckpt={s2}")
+        raise AssertionError('reload_model strict load failed: ' + '; '.join(parts))
+
+    return {
+        'loaded': loaded,
+        'missing': missing_keys,
+        'shape_mismatch': shape_mismatch,
+    }

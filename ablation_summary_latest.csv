@@ -1,14 +1,26 @@
-group,exp_name,label,psnr,ssim,best_iter,run_dir
-Group 1,ablation_1b_baseline_plus_timeband,1b +time_band,14.1225,0.3563,600,training_logs/experiments/ablation_1b_baseline_plus_timeband/2026-03-05_02-01-43
-Group 1,ablation_1c_baseline_plus_maskband,1c +mask_band(hard),12.1931,0.2217,0,training_logs/experiments/ablation_1c_baseline_plus_maskband/2026-03-05_02-31-52
-Group 1,ablation_1d_baseline_plus_timeband_maskband,1d +time+mask(hard),14.2657,0.3852,300,training_logs/experiments/ablation_1d_baseline_plus_timeband_maskband/2026-03-05_03-16-45
-Group 1,config_true_baseline,1a true baseline,12.2797,0.2647,400,training_logs/experiments/config_true_baseline/2026-03-05_01-18-04
-Group 2,ablation_2b_with_cross_attention_no_posenc,2b +cross_attention,14.473,0.3586,500,training_logs/experiments/ablation_2b_with_cross_attention_no_posenc/2026-03-05_03-47-29
-Group 2,ablation_2c_cross_downsample_rate_2,2c cross_downsample=2,14.5803,0.384,600,training_logs/experiments/ablation_2c_cross_downsample_rate_2/2026-03-05_04-20-43
-Group 3,ablation_3a_with_cross_attention_posenc_sincos,3a +pos(sincos),13.5138,0.3523,100,training_logs/experiments/ablation_3a_with_cross_attention_posenc_sincos/2026-03-05_04-30-45
-Group 3,ablation_3b_with_cross_attention_posenc_learnable,3b +pos(learnable),14.6694,0.3556,100,training_logs/experiments/ablation_3b_with_cross_attention_posenc_learnable/2026-03-05_05-03-51
-Group 3,ablation_3c_with_cross_attention_posenc_concat,3c +pos(concat),14.5684,0.371,800,training_logs/experiments/ablation_3c_with_cross_attention_posenc_concat/2026-03-05_05-36-51
-Group 3,ablation_3d_posenc_without_cross_attention,3d +pos(no-cross),13.3887,0.354,100,training_logs/experiments/ablation_3d_posenc_without_cross_attention/2026-03-05_06-10-03
-Group 4,ablation_4a_soft_mask_test,4a soft-mask test,14.499,0.3585,500,training_logs/experiments/ablation_4a_soft_mask_test/2026-03-04_07-55-40
-Group 4,ablation_4b_advanced_processor_soft_simplified,4b soft + advanced off,14.5181,0.3538,100,training_logs/experiments/ablation_4b_advanced_processor_soft_simplified/2026-03-05_06-19-37
-Unknown,ablation_4c_mask_reduce_prob_or,ablation_4c_mask_reduce_prob_or,14.5117,0.3553,600,training_logs/experiments/ablation_4c_mask_reduce_prob_or/2026-03-04_10-02-40
+rank,exp_name,group,best_psnr,best_ssim,best_ergas,best_sam,best_iter,total_iters,has_best_ckpt,run_dir
+1,ablation_4d_mask_temporal_loss,G4-软掩膜,14.7357,0.3380,10.7622,0.3428,600,5000,Yes,training_logs/experiments/ablation_4d_mask_temporal_loss/2026-03-16_16-48-21
+2,ablation_4c_mask_reduce_prob_or,G4-软掩膜,14.7357,0.3288,10.7652,0.3439,1000,5000,Yes,training_logs/experiments/ablation_4c_mask_reduce_prob_or/2026-03-16_16-20-28
+3,ablation_3b_with_cross_attention_posenc_learnable,G3-位置编码,14.6694,0.3556,10.8859,0.3501,100,5000,Yes,training_logs/experiments/ablation_3b_with_cross_attention_posenc_learnable/2026-03-05_05-03-51
+4,exp_cross,其他,14.6533,0.3564,10.9230,0.3503,100,5000,Yes,training_logs/experiments/exp_cross/2026-03-03_10-31-19
+5,ablation_2c_cross_downsample_rate_2,G2-交叉注意力,14.5803,0.3840,11.1131,0.3481,600,1500,Yes,training_logs/experiments/ablation_2c_cross_downsample_rate_2/2026-03-05_04-20-43
+6,ablation_3c_with_cross_attention_posenc_concat,G3-位置编码,14.5684,0.3710,10.9985,0.3488,800,5000,Yes,training_logs/experiments/ablation_3c_with_cross_attention_posenc_concat/2026-03-05_05-36-51
+7,ablation_4b_advanced_processor_soft_simplified,G4-软掩膜,14.5181,0.3538,11.0545,0.3529,100,1500,Yes,training_logs/experiments/ablation_4b_advanced_processor_soft_simplified/2026-03-05_06-19-37
+8,ablation_4a_soft_mask_test,G4-软掩膜,14.4990,0.3585,11.1953,0.3544,500,5000,Yes,training_logs/experiments/ablation_4a_soft_mask_test/2026-03-04_07-55-40
+9,exp_cross_learnable,其他,14.4857,0.3554,11.1443,0.3526,100,2300,Yes,training_logs/experiments/exp_cross_learnable/2026-03-03_11-37-28
+10,ablation_2b_with_cross_attention_no_posenc,G2-交叉注意力,14.4730,0.3586,11.2596,0.3540,500,5000,Yes,training_logs/experiments/ablation_2b_with_cross_attention_no_posenc/2026-03-05_03-47-29
+11,ablation_1d_baseline_plus_timeband_maskband,G1-基线,14.2657,0.3852,11.7314,0.3551,300,5000,Yes,training_logs/experiments/ablation_1d_baseline_plus_timeband_maskband/2026-03-05_03-16-45
+12,exp_baseline,其他,14.2278,0.3861,11.6860,0.3553,300,5000,Yes,training_logs/experiments/exp_baseline/2026-03-03_10-02-40
+13,exp_baseline_20260303_051931,其他,14.2031,0.3566,11.5846,0.3540,100,100,Yes,training_logs/experiments/exp_baseline_20260303_051931/2026-03-03_07-46-59
+14,exp_cross_concat_20260303_051931,其他,14.1848,0.3568,11.7223,0.3528,100,100,Yes,training_logs/experiments/exp_cross_concat_20260303_051931/2026-03-03_07-48-51
+15,exp_cross_concat,其他,14.1805,0.3568,11.7282,0.3530,100,100,Yes,training_logs/experiments/exp_cross_concat/2026-03-03_05-08-24
+16,ablation_1b_baseline_plus_timeband,G1-基线,14.1225,0.3563,11.9074,0.3560,600,5000,Yes,training_logs/experiments/ablation_1b_baseline_plus_timeband/2026-03-05_02-01-43
+17,exp_cross_learnable_20260303_051931,其他,13.8090,0.2309,12.0703,0.3737,0,100,Yes,training_logs/experiments/exp_cross_learnable_20260303_051931/2026-03-03_07-49-46
+18,exp_cross_20260303_051931,其他,13.8084,0.2266,12.0601,0.3736,0,100,Yes,training_logs/experiments/exp_cross_20260303_051931/2026-03-03_07-47-53
+19,exp_cross_sincos,其他,13.5588,0.3526,12.1686,0.3936,100,5000,Yes,training_logs/experiments/exp_cross_sincos/2026-03-03_11-04-22
+20,ablation_3a_with_cross_attention_posenc_sincos,G3-位置编码,13.5138,0.3523,12.2849,0.3938,100,5000,Yes,training_logs/experiments/ablation_3a_with_cross_attention_posenc_sincos/2026-03-05_04-30-45
+21,ablation_3d_posenc_without_cross_attention,G3-位置编码,13.3887,0.3540,12.6693,0.3905,100,1500,Yes,training_logs/experiments/ablation_3d_posenc_without_cross_attention/2026-03-05_06-10-03
+22,config_true_baseline,G1-基线,12.2797,0.2647,14.7961,0.4265,400,5000,Yes,training_logs/experiments/config_true_baseline/2026-03-05_01-18-04
+23,ablation_1c_baseline_plus_maskband,G1-基线,12.1931,0.2217,15.1189,0.4340,0,5000,Yes,training_logs/experiments/ablation_1c_baseline_plus_maskband/2026-03-05_02-31-52
+24,ablation_4a_with_cross_attention_softmask,G4-软掩膜,N/A,N/A,N/A,N/A,0,0,No,training_logs/experiments/ablation_4a_with_cross_attention_softmask/2026-03-05_06-19-19
+25,exp_cross_sincos_20260303_051931,其他,N/A,N/A,N/A,N/A,0,0,No,training_logs/experiments/exp_cross_sincos_20260303_051931/2026-03-03_07-50-45

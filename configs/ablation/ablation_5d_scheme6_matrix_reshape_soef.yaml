@@ -39,20 +39,20 @@ data:
   train:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/Cloud_test/processed_data_SR_10m/train/LR"
-      hr_dir: "./data/Cloud_test/processed_data_SR_10m/train/HR"
+      lr_dir: "./data/processed_data/train/LR"
+      hr_dir: "./data/processed_data/train/HR"
       sample_num: 16
   val:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/Cloud_test/processed_data_SR_10m/val/LR"
-      hr_dir: "./data/Cloud_test/processed_data_SR_10m/val/HR"
+      lr_dir: "./data/processed_data/val/LR"
+      hr_dir: "./data/processed_data/val/HR"
       sample_num: 8
   test:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/Cloud_test/processed_data_SR_10m/test/LR"
-      hr_dir: "./data/Cloud_test/processed_data_SR_10m/test/HR"
+      lr_dir: "./data/processed_data/test/LR"
+      hr_dir: "./data/processed_data/test/HR"
       sample_num: 8
 
 trainer:

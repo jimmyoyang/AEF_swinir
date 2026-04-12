@@ -1,0 +1,3 @@
+# Auto-rebuilt alias
+defaults:
+  - ../ablation/ablation_3b_with_cross_attention_posenc_learnable.yaml

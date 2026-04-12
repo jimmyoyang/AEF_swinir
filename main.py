@@ -16,7 +16,16 @@ sys.path.append(str(project_root))
 from utils.util_common import get_obj_from_str
 from datapipe.datasets import create_dataset  # 新架构数据集创建工具
 from trainer import TrainerAlphaSR            # 训练器类
+from trainer_srcnn import TrainerSRCNN        # SRCNN专用训练器
 from inference import Predictor               # 新架构推理预测器类
+from inference_srcnn import PredictorSRCNN, run_inference_srcnn  # SRCNN专用推理
+
+def detect_model_type(configs):
+    """检测模型类型（SRCNN或其他）"""
+    model_target = configs.model.target.lower()
+    if 'srcnn' in model_target:
+        return 'srcnn'
+    return 'default'
 
 def main():
     # --- 1. 解析命令行参数 (保持所有原有参数不变) ---
@@ -45,18 +54,20 @@ def main():
         run_testing(args, configs)
 
 def run_training(args, configs):
-    """执行训练流程（整合完整的恢复训练逻辑）"""
+    """执行训练流程（兼容SRCNN和其他模类）"""
     print("\n" + "="*80 + "\n🚀 Starting Training Mode...\n" + "="*80)
     
-    # --- 智能处理恢复逻辑 (保留v_final的完整逻辑，带详细打印) ---
+    # 检测模型类型
+    model_type = detect_model_type(configs)
+    print(f"[Main] Model type detected: {model_type}")
+    
+    # --- 智能处理恢复逻辑 ---
     exp_dir = Path(configs.train.save_dir)
     resume_path = None
     
-    # 最高优先级：用户直接指定了ckpt路径
     if args.ckpt_path:
         resume_path = args.ckpt_path
         print(f"[Main] Resuming from user-specified checkpoint: {resume_path}")
-    # 第二优先级：用户要求恢复，自动查找最新ckpt
     elif args.resume:
         if not exp_dir.exists() or not any(exp_dir.iterdir()):
             print(f"[Main] '--resume' flag is set, but experiment directory {exp_dir} is empty or not found. Starting from scratch.")
@@ -80,19 +91,27 @@ def run_training(args, configs):
             except ValueError:
                 print(f"[Main] '--resume' flag is set, but no subdirectories found in {exp_dir}. Starting from scratch.")
 
-    # 将恢复路径写入配置
     configs.resume = resume_path 
 
-    # --- 实例化并启动训练器 (保持原有逻辑) ---
-    trainer_cls = get_obj_from_str(configs.trainer.target)
-    trainer = trainer_cls(configs)
+    # --- 根据模型类型选择训练器 ---
+    if model_type == 'srcnn':
+        print("[Main] Using SRCNN trainer...")
+        trainer = TrainerSRCNN(configs)
+    else:
+        print("[Main] Using default (SwinIR) trainer...")
+        trainer = TrainerAlphaSR(configs)
+    
     trainer.train()
 
 def run_testing(args, configs):
-    """执行测试/推理流程（整合新架构的Predictor逻辑）"""
+    """执行测试/推理流程（兼容SRCNN和其他模型）"""
     print("\n" + "="*80 + "\n🚀 Starting Test (Inference) Mode...\n" + "="*80)
     
-    # --- 前置检查 (保留原有校验逻辑) ---
+    # 检测模型类型
+    model_type = detect_model_type(configs)
+    print(f"[Main] Model type detected: {model_type}")
+    
+    # --- 前置检查 ---
     if not args.ckpt_path:
         print("❌ CRITICAL: For 'test' mode, a checkpoint path must be specified via '--ckpt_path'.")
         sys.exit(1)
@@ -100,29 +119,53 @@ def run_testing(args, configs):
         print("❌ CRITICAL: For 'test' mode, '--input_dir' and '--output_dir' must be specified.")
         sys.exit(1)
 
-    # --- 新架构核心逻辑：实例化Predictor ---
-    predictor = Predictor(args.cfg_path, args.ckpt_path)
-    
-    # --- 创建Test DataLoader (适配新数据管道) ---
-    # 使用与训练一致的配置创建数据集
+    # --- 创建Test DataLoader ---
     data_config = {
-        'target': 'datapipe.datasets.AnytimeTemporalDataset',
+        'target': 'datapipe.datasets.PreprocessedTileDataset',
         'params': {
             'lr_dir': str(Path(args.input_dir) / 'LR'),
             'hr_dir': str(Path(args.input_dir) / 'HR'),
-            'need_path': True  # 确保返回路径以便按原路径保存结果
+            'need_path': True
         }
     }
-    test_dataset = create_dataset(data_config, parent_configs=predictor.configs)
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset, 
-        batch_size=1, 
-        shuffle=False, 
-        num_workers=4  # 适配批量推理，可根据硬件调整
-    )
-    
-    # --- 执行推理 (调用Predictor的推理方法) ---
-    predictor.run_inference(test_loader, Path(args.output_dir))
+    test_dataset = create_dataset(data_config, parent_configs=configs)
+
+    # 动态检测输入通道数
+    try:
+        sample = test_dataset[0]
+        if 's1' in sample:
+            probe = sample['s1']
+        elif 'lr' in sample:
+            probe = sample['lr']
+        elif 'lr_sequence' in sample:
+            probe = sample['lr_sequence']
+        else:
+            raise KeyError(f"No valid input key in test sample. Keys: {list(sample.keys())}")
+
+        if probe.dim() == 4:
+            dynamic_in_chans = int(probe.shape[1])
+        elif probe.dim() == 3:
+            dynamic_in_chans = int(probe.shape[0])
+        else:
+            raise ValueError(f"Unsupported test sample shape: {tuple(probe.shape)}")
+    except Exception as e:
+        print(f"❌ CRITICAL: Failed to infer in_chans from test dataset. Error: {e}")
+        sys.exit(1)
+
+    # --- 根据模型类型选择推理器 ---
+    if model_type == 'srcnn':
+        print("[Main] Using SRCNN predictor...")
+        run_inference_srcnn(args, configs)
+    else:
+        print("[Main] Using default (SwinIR) predictor...")
+        predictor = Predictor(configs, args.ckpt_path, dynamic_in_chans)
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset, 
+            batch_size=1, 
+            shuffle=False, 
+            num_workers=4
+        )
+        predictor.run_inference(test_loader, Path(args.output_dir))
 
 if __name__ == '__main__':
     main()

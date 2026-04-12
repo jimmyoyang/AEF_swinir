@@ -9,3 +9,11 @@ raw_landsat/
 files/
 inference_results/
 debug_output/
+best_ckpts/
+
+# 临时目录与运行产物（勿提交）
+tmp/
+patch_stats.log
+__pycache__/
+*.py[cod]
+*.pth

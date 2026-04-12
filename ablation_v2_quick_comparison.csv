@@ -1,0 +1,5 @@
+active_groups,best_psnr,ergas,post_tau,psnr,routing_entropy,run_dir,sam,scheme,ssim
+,14.6932,10.7358,,14.6932,,training_logs/experiments_v2/ablation_v2_5a_nopost_bestpre/2026-03-20_03-54-44,0.3439,5a_nopost_bestpre,0.3263
+4.0,13.733,12.0882,0.6000000000000001,13.7197,1.3610186576843262,training_logs/experiments_v2/ablation_v2_5b_scheme1_gumbel/2026-03-20_03-55-51,0.3696,5b_scheme1_gumbel,0.2711
+2.0,14.7254,10.6564,0.0,14.7254,0.0,training_logs/experiments_v2/ablation_v2_5c_scheme3_dual_branch/2026-03-20_03-56-55,0.3406,5c_scheme3_dual_branch,0.3414
+1.0,14.4848,11.0318,0.0,14.4848,0.0,training_logs/experiments_v2/ablation_v2_5d_scheme6_matrix/2026-03-20_03-58-00,0.3478,5d_scheme6_matrix,0.3331

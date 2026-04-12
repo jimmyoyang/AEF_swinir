@@ -9,7 +9,15 @@
   - `time_band`
   - `mask_band`（hard/soft）
   - `cross_attention`
-  - `position encoding`（sincos/learnable/concat）
+  - `position encoding`（sincos/learnable）
+
+### 1.3 框架关系真值表（主线 vs 4c/4d）
+
+| 实验 | 模型文件 | Trainer 文件 | indicating_mask 训练口径 | 是否改主框架 |
+|---|---|---|---|---|
+| 主线（2b/3a/3b...） | `models/network_swinir.py` | `trainer.py` | 主线训练按 `max` 聚合到空间掩膜后单次 loss | 否 |
+| 4c | `models/network_swinir.py` | `trainer_mask_ablation.py` (`TrainerAlphaSRMaskAblation`) | `mean/max/prob_or` 先聚合到空间掩膜后单次 loss | 否（独立分支） |
+| 4d | `models/network_swinir.py` | `trainer_mask_ablation.py` (`TrainerAlphaSRMaskTemporalLossAblation`) | 每时相单独 masked loss，再做时相聚合 | 否（独立分支） |
 
 ### 1.2 单变量对照规则
 - 每组只改一个变量，其余保持一致。
@@ -53,7 +61,6 @@
 | G2 | `ablation_2b_with_cross_attention_no_posenc` | `+cross_attention` | vs 1d |
 | G3 | `ablation_3a_with_cross_attention_posenc_sincos` | `+pos(sincos)` | vs 2b |
 | G3 | `ablation_3b_with_cross_attention_posenc_learnable` | `+pos(learnable)` | vs 2b |
-| G3 | `ablation_3c_with_cross_attention_posenc_concat` | `+pos(concat)` | vs 2b |
 
 ### 3.2 扩展实验链（本周新增）
 
@@ -64,6 +71,7 @@
 | G4 | `ablation_4a_with_cross_attention_softmask` | 软掩膜版本（历史命名） | vs 2b |
 | G4 | `ablation_4b_advanced_processor_soft_simplified` | `use_advanced_processor` 影响 | vs 4a |
 | G4 | `ablation_4c_mask_reduce_prob_or` | `indicating_mask` 聚合策略优化 | vs 4a |
+| G4 | `ablation_4d_mask_temporal_loss` | 时相级损失聚合（不先压缩时序） | vs 4c |
 
 ## 4. 软掩膜口径（最新）
 
@@ -72,24 +80,33 @@
 - `features.mask_band.processor.mask_type=soft`
 - `soft_mask_sigma` 控制平滑强度（默认 `2.0`）
 
-### 4.3 indicating_mask 聚合策略（ablation_4c 新增）
+### 4.3 indicating_mask 聚合策略（4c）与时相级损失（4d）
 
-**背景**：当前训练器在损失计算时，会对 `indicating_mask (B,T,H,W)` 沿时间维做 `mean(dim=1)` 聚合为 `(B,1,H,W)`，这会抹平各时相的质量差异。
+**背景（当前代码口径）**：
+- 主线 `trainer.py` 的训练侧使用 `max` 聚合 `indicating_mask` 到 `(B,1,H,W)` 后单次 loss。
+- 4c 允许 `mean/max/prob_or` 三种聚合，但仍是先压缩时序到 `(B,1,H,W)` 再单次 loss。
+- 4d 不先压缩时序，改为“每时相单独 masked loss，再按策略聚合”。
 
-**改进方案**（新增 `trainer_mask_ablation.py`）：
+**独立分支实现**（`trainer_mask_ablation.py`）：
 - **prob_or（默认）**：`1 - Π(1-m_t)` - 任一时相可见即提高监督权重
 - **max**：取各时相最大值 - 保留最佳观测
 - **mean**：简单平均（原方案）
+- **temporal_loss_reduce（4d）**：`mean/max/weighted_mean`
 
 **对应文件**：
 - Trainer：`trainer_mask_ablation.py`
 - 配置：`configs/ablation/ablation_4c_mask_reduce_prob_or.yaml`
+- 配置：`configs/ablation/ablation_4d_mask_temporal_loss.yaml`
 - 运行脚本：`scripts/run_ablation_4c_mask_reduce_prob_or.sh`
+- 运行脚本：`scripts/run_ablation_4d_mask_temporal_loss.sh`
 
 **配置开关**：
 ```yaml
 train:
   indicating_mask_reduce: "prob_or"  # 可选: mean / max / prob_or
+
+  # 4d 时相级损失聚合开关
+  temporal_loss_reduce: "weighted_mean"  # 可选: mean / max / weighted_mean
 ```
 
 **适用场景**：
@@ -100,11 +117,13 @@ train:
 **运行命令**：
 ```bash
 bash scripts/run_ablation_4c_mask_reduce_prob_or.sh 0
+bash scripts/run_ablation_4d_mask_temporal_loss.sh 0
 ```
 
-**推荐对比链**：`2b → 4a → 4c`
+**推荐对比链**：`2b → 4a → 4c → 4d`
 - `2b → 4a`：验证软掩膜本身收益
 - `4a → 4c`：验证聚合策略本身收益
+- `4c → 4d`：验证“时相级损失”相对“单次损失”的独立收益
 
 **预期收益（经验口径）**：`+0.1 ~ +0.3 dB`（以同训练预算比较为准）
 
@@ -170,11 +189,12 @@ python scripts/analyze_ablation_final.py
 ```
 
 ### Q4: ablation_4c 和其他 4 系的区别？
-- **4a**: 使用软掩膜（`mask_type=soft`），但 indicating_mask 仍用简单 mean
+- **4a**: 使用软掩膜（`mask_type=soft`），训练口径仍走主线 trainer
 - **4b**: 启用高级处理器（`use_advanced_processor=true`）
-- **4c**: 改进 indicating_mask 的时间聚合策略（`prob_or` 而非 `mean`），不改其他部分
+- **4c**: 独立 trainer，改进 indicating_mask 聚合（`mean/max/prob_or`），单次 loss
+- **4d**: 独立 trainer，时相级 masked loss，再按 `temporal_loss_reduce` 聚合
 
-**推荐对比链**：`2b → 4a → 4c`，验证软掩膜 + 聚合策略的叠加收益。
+**推荐对比链**：`2b → 4a → 4c → 4d`，验证软掩膜、聚合策略、时相级损失三步收益。
 
 输出：
 - `ablation_summary_latest.csv`

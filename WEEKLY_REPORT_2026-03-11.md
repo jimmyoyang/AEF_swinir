@@ -12,7 +12,8 @@
 
 ### 关键发现：
 1. ✅ **时间编码（time_band）带来显著增益**: +1.84 dB (最大单项贡献)
-2. ✅ **可学习位置编码优于其他方案**: learnable (14.67) > concat (14.57) > sincos (13.51)
+2. ✅ **可学习位置编码在当前配置中优于 sincos**: learnable (14.67) > sincos (13.51)
+   - 注：`3c` 当前是“cross-value concat + learnable pos”的复合配置，不再作为纯位置编码 concat 结论依据
 3. ✅ **交叉注意力有效但增益有限**: +0.21 dB（在已有时间+掩膜特征基础上）
 4. ⚠️ **硬掩膜特征单独使用负面效果**: -0.09 dB（需配合其他特征）
 5. ⚠️ **软掩膜改进微弱**: +0.03 dB（未达预期，可能需要更长训练）
@@ -36,12 +37,13 @@
 | **Group 3** | | | | | | |
 | G3 | ablation_3a_with_cross_attention_posenc_sincos | +pos(sincos) | vs 2b | 13.51 | 0.3523 | 100 |
 | G3 | ablation_3b_with_cross_attention_posenc_learnable | **+pos(learnable)** ⭐ | vs 2b | **14.67** | 0.3556 | 100 |
-| G3 | ablation_3c_with_cross_attention_posenc_concat | +pos(concat) | vs 2b | 14.57 | 0.3710 | 800 |
+| G3 | ablation_3c_with_cross_attention_posenc_concat | 复合配置（cross-value concat + learnable pos） | vs 2b | 14.57 | 0.3710 | 800 |
 | G3 | ablation_3d_posenc_without_cross_attention | +pos(no-cross) | vs 1d | 13.39 | 0.3540 | 100 |
 | **Group 4** | | | | | | |
 | G4 | ablation_4a_soft_mask_test | hard→soft | vs 2b | 14.50 | 0.3585 | 500 |
 | G4 | ablation_4b_advanced_processor_soft_simplified | +advanced_processor | vs 4a | 14.52 | 0.3538 | 100 |
 | G4 | ablation_4c_mask_reduce_prob_or | mask_reduce=prob_or | vs 4a | 14.51 | 0.3553 | 600 |
+| G4 | ablation_4d_mask_temporal_loss | 时相级 masked loss 聚合 | vs 4c | - | - | - |
 
 ### 2.2 统一训练配置
 - **优化器**: AdamW, lr=1e-4
@@ -50,6 +52,13 @@
 - **验证频率**: 每50轮
 - **随机种子**: 42
 - **数据集**: Cloud_test (1个训练tile, 1个验证tile)
+
+### 2.3 框架关系澄清（主线 / 4c / 4d）
+
+- 主线实验（2b/3a/3b 等）使用 `trainer.py`，训练侧 `indicating_mask` 聚合口径为 `max`。
+- `4c` 使用独立 trainer（`trainer_mask_ablation.py::TrainerAlphaSRMaskAblation`），可选 `mean/max/prob_or`，但仍是“先聚合后单次 loss”。
+- `4d` 使用独立 trainer（`trainer_mask_ablation.py::TrainerAlphaSRMaskTemporalLossAblation`），采用“每时相单独 masked loss，再聚合”。
+- 三者都复用同一个模型文件 `models/network_swinir.py`，不是另起网络框架。
 
 ---
 
@@ -81,10 +90,10 @@
    - 可能原因：云覆盖导致的时序不规则性，固定公式无法适应
    - 遥感多时相场景与NLP序列性质不同
 
-3. **Concat方式次优**（14.57 dB）
-   - 相比learnable略差 -0.10 dB
-   - 增加了特征维度开销
-   - 但比sincos好 +1.06 dB
+3. **3c 结果需要按“复合配置”解读**（14.57 dB）
+   - 当前 3c 同时启用 `cross_concat_value=true` 与 `use_learnable_pos_emb=true`
+   - 不属于“纯位置编码 concat”单变量实验
+   - 建议将其作为复合策略参考，不纳入纯位置编码排序
 
 4. **位置编码需要配合交叉注意力**
    - 实验3d（有pos无cross）: 13.39 dB
@@ -188,6 +197,9 @@ ablation_1d (+0.15 dB) → 14.27
 ablation_2b (+0.20 dB) → 14.47
   ↓ +pos_learnable
 ablation_3b (+0.20 dB) → 14.67 ⭐ (最优)
+
+扩展链（掩膜策略）：
+ablation_2b (hard) → ablation_4a (soft) → ablation_4c (prob_or) → ablation_4d (temporal loss)
 ```
 
 ### 4.2 各模块独立贡献

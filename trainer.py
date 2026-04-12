@@ -6,6 +6,7 @@ import math
 import time
 import random
 import datetime
+import shutil
 import numpy as np
 import torch
 from pathlib import Path
@@ -69,6 +70,8 @@ class TrainerBase:
         self.build_model()           # 动态构建模型（适配数据通道数）
         self.setup_optimization()    # 设置优化器/损失函数
         self.resume_from_ckpt()      # 恢复训练（如有检查点）
+        # 训练循环开始前也需要可用的 current_iters（例如 baseline 可视化）
+        self.current_iters = int(getattr(self, 'iters_start', 0))
 
     def init_dist_and_seed(self):
         """初始化分布式训练环境和随机种子"""
@@ -182,23 +185,35 @@ class TrainerBase:
         if 'train' in self.datasets:
             try:
                 # 临时加载一个样本探测输入通道数
-                # import pdb;pdb.set_trace()
                 temp_loader = udata.DataLoader(self.datasets['train'], batch_size=1, shuffle=False)
                 first_batch = next(iter(temp_loader))
                 _,_, C, _, _ = first_batch['lr_sequence'].shape  # 从lr_sequence获取通道数
-                
-                # 将动态检测的通道数注入配置
-                self.configs.model.params.in_chans = C
-                if self.rank == 0:
-                    self.logger.info(f"✅ Dynamically detected input channels: {C}")
-                
+
+                # 根据模型类型动态注入通道数
+                model_name = self.configs.model.target.split('.')[-1].lower()
+                if 'srcnn' in model_name:
+                    self.configs.model.params.in_channels = C
+                    if 'in_chans' in self.configs.model.params:
+                        del self.configs.model.params['in_chans']
+                    if self.rank == 0:
+                        self.logger.info(f"✅ Dynamically detected in_channels for SRCNN: {C}")
+                else:
+                    self.configs.model.params.in_chans = C
+                    if 'in_channels' in self.configs.model.params:
+                        del self.configs.model.params['in_channels']
+                    if self.rank == 0:
+                        self.logger.info(f"✅ Dynamically detected in_chans: {C}")
+
                 # 释放临时变量
                 del temp_loader, first_batch
             except Exception as e:
                 if self.rank == 0:
                     self.logger.error(f"❌ Failed to detect input channels: {e}")
-                if 'in_chans' not in self.configs.model.params:
-                    sys.exit("CRITICAL: in_chans not set and detection failed!")
+                # 判断两种情况都没有时才报错
+                model_name = self.configs.model.target.split('.')[-1].lower()
+                if (('srcnn' in model_name and 'in_channels' not in self.configs.model.params) or
+                    ('srcnn' not in model_name and 'in_chans' not in self.configs.model.params)):
+                    sys.exit("CRITICAL: input channel detection failed and required parameter missing!")
 
         # 实例化模型并移到GPU
         self.model = util_common.instantiate_from_config(self.configs.model).cuda()
@@ -241,9 +256,29 @@ class TrainerBase:
                 'best_metric': self.best_metric,
                 'optimizer': self.optimizer.state_dict()
             }, ckpt_path)
+
+            # 可选：将最佳权重镜像到 ./best_ckpts/{exp_name}/model.pth
+            if best and self.configs.train.get('export_best_ckpt', True):
+                self.export_best_ckpt(ckpt_path)
             
             if not best:
                 self.logger.info(f"💾 Saved checkpoint to: {ckpt_path}")
+
+    def export_best_ckpt(self, ckpt_path: Path):
+        """将最佳权重导出到统一目录，便于分析脚本和文档引用。"""
+        try:
+            save_dir = Path(str(self.configs.train.save_dir))
+            exp_name = save_dir.name if save_dir.name else "default_exp"
+            best_root = Path(self.configs.train.get('best_ckpt_dir', './best_ckpts'))
+            target_dir = best_root / exp_name
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target_path = target_dir / 'model.pth'
+
+            # 采用复制以保证跨文件系统稳定性
+            shutil.copy2(ckpt_path, target_path)
+            self.logger.info(f"🏁 Exported best checkpoint to: {target_path}")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Failed to export best checkpoint: {e}")
 
     def resume_from_ckpt(self):
         """从检查点恢复训练"""
@@ -257,20 +292,54 @@ class TrainerBase:
             if self.rank == 0:
                 self.logger.info(f"🔄 Resuming from checkpoint: {ckpt_path}")
             
-            # 加载检查点（指定GPU）
-            ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.rank}")
+            # 兼容 PyTorch 2.6: 默认 weights_only=True 可能导致旧 checkpoint 反序列化失败。
+            # 对可信本地实验权重，失败后自动回退到 weights_only=False。
+            try:
+                ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.rank}")
+            except Exception as e:
+                err = str(e)
+                if "Weights only load failed" in err:
+                    if self.rank == 0:
+                        self.logger.warning(
+                            "⚠️ torch.load safe mode failed; retrying with weights_only=False for trusted local checkpoint."
+                        )
+                    try:
+                        ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.rank}", weights_only=False)
+                    except TypeError:
+                        # 兼容旧版 PyTorch（无 weights_only 参数）
+                        ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.rank}")
+                else:
+                    raise
             
             # 加载模型权重（兼容DDP）
             model_to_load = self.model.module if isinstance(self.model, DDP) else self.model
-            util_net.reload_model(model_to_load, ckpt['state_dict'])
+            try:
+                load_info = util_net.reload_model(model_to_load, ckpt['state_dict'], strict=True)
+            except AssertionError as e:
+                if self.rank == 0:
+                    self.logger.warning(f"⚠️ Strict weight load failed: {e}")
+                    self.logger.warning("⚠️ Falling back to non-strict load (matched keys only).")
+                load_info = util_net.reload_model(model_to_load, ckpt['state_dict'], strict=False)
+
+            if self.rank == 0 and isinstance(load_info, dict):
+                self.logger.info(
+                    f"🔎 Weight load summary | loaded={load_info.get('loaded', 0)} "
+                    f"missing={len(load_info.get('missing', []))} "
+                    f"shape_mismatch={len(load_info.get('shape_mismatch', []))}"
+                )
             
             # 恢复迭代数和最佳指标
             self.iters_start = ckpt.get('iters_start', 0)
             self.best_metric = ckpt.get('best_metric', 0.0)
             
-            # 恢复优化器
+            # 恢复优化器。跨版本/跨结构恢复时，参数组数量可能不一致，失败则降级为新优化器状态继续训练。
             if 'optimizer' in ckpt:
-                self.optimizer.load_state_dict(ckpt['optimizer'])
+                try:
+                    self.optimizer.load_state_dict(ckpt['optimizer'])
+                except ValueError as e:
+                    if self.rank == 0:
+                        self.logger.warning(f"⚠️ Optimizer state load skipped due to mismatch: {e}")
+                        self.logger.warning("⚠️ Continue with freshly initialized optimizer state.")
             
             if self.rank == 0:
                 self.logger.info(f"✅ Resumed from iteration {self.iters_start} | Best metric: {self.best_metric:.4f}")
@@ -389,10 +458,33 @@ class TrainerAlphaSR(TrainerBase):
     def training_step(self, data):
         """单步训练逻辑"""
         # 模型前向传播（输入为完整数据字典）
-        predictions = self.model(data)
-        # 计算损失
-        # import pdb;pdb.set_trace()
-        loss = self.criterion(predictions, data['gt'])
+        """
+        单步训练逻辑：自动区分 SRCNN（张量输入）和 SwinIR（字典输入）
+        """
+        # 判断模型类型，SRCNN 只接受张量输入
+        model_name = self.model.__class__.__name__.lower()
+        if 'srcnn' in model_name:
+            # 仅取 lr_sequence 张量作为输入
+            predictions = self.model(data['lr_sequence'])
+        else:
+            # 其他模型保持字典输入
+            predictions = self.model(data)
+
+        # 计算损失（可选：按 indicating_mask 对无云像素加权）
+        use_ind_mask = self.configs.train.get('use_indicating_mask_in_training', False)
+        if use_ind_mask and data.get('indicating_mask') is not None:
+            # indicating_mask: (B,T,H,W) 或 (T,H,W) → 聚合到空间维 (B,1,H,W)
+            ind_mask = data['indicating_mask'].float()
+            if ind_mask.ndim == 3:
+                ind_mask = ind_mask.unsqueeze(0)  # (1,T,H,W)
+            # 时序聚合：任一时相有效则该像素有效
+            spatial_mask = ind_mask.max(dim=1, keepdim=True)[0].clamp(0, 1)  # (B,1,H,W)
+            spatial_mask = spatial_mask.expand_as(predictions)
+            valid_pixels = spatial_mask.sum().clamp(min=1)
+            loss = self.criterion(predictions * spatial_mask, data['gt'] * spatial_mask)
+            loss = loss * (float(predictions.numel()) / valid_pixels)
+        else:
+            loss = self.criterion(predictions, data['gt'])
         
         # 反向传播+优化
         self.optimizer.zero_grad()
@@ -407,8 +499,8 @@ class TrainerAlphaSR(TrainerBase):
         """验证流程（计算PSNR/SSIM/ERGAS/SAM指标）"""
         if self.rank == 0:
             self.model.eval()
-            all_metrics = {'psnr': [], 'ssim': [], 'ergas': [], 'sam': []}
-            pbar = tqdm(self.dataloaders[phase], desc=f"📌 Val Iter {self.current_iters}")
+            all_metrics = {'psnr': [], 'ssim': [], 'ergas': [], 'sam': [], 'masked_psnr': []}
+            pbar = tqdm(self.dataloaders[phase], desc=f"📌 Val Iter {getattr(self, 'current_iters', 0)}")
             
             for ii, data in enumerate(pbar):
                 data = self.prepare_data(data)
@@ -432,20 +524,51 @@ class TrainerAlphaSR(TrainerBase):
                 all_metrics['ssim'].append(ssim_val)
                 all_metrics['ergas'].append(ergas(gt_numpy, pred_numpy))
                 all_metrics['sam'].append(sam(gt_numpy, pred_numpy))
-                
+
+                # 可选：在有效（无云）像素上计算 Masked-PSNR
+                if data.get('indicating_mask') is not None:
+                    ind_mask = data['indicating_mask'].float()
+                    if ind_mask.ndim == 3:
+                        ind_mask = ind_mask.unsqueeze(0)  # (1,T,H,W)
+                    # 时序聚合并对齐到预测分辨率（避免 64x64 掩膜索引 192x192 图像）
+                    spatial_mask = ind_mask[0].max(dim=0, keepdim=True)[0].unsqueeze(0)  # (1,1,H,W)
+                    pred_h, pred_w = pred_numpy.shape[0], pred_numpy.shape[1]
+                    if spatial_mask.shape[-2:] != (pred_h, pred_w):
+                        spatial_mask = F.interpolate(
+                            spatial_mask,
+                            size=(pred_h, pred_w),
+                            mode='bilinear',
+                            align_corners=False,
+                        )
+                    spatial_mask_np = spatial_mask.squeeze(0).squeeze(0).cpu().numpy() > 0.5
+                    if spatial_mask_np.sum() > 0:
+                        per_band_mpsnr = []
+                        for b in range(gt_numpy.shape[-1]):
+                            diff_sq = (gt_numpy[:, :, b][spatial_mask_np] - pred_numpy[:, :, b][spatial_mask_np]) ** 2
+                            mse = diff_sq.mean()
+                            if mse > 0:
+                                per_band_mpsnr.append(20.0 * np.log10(1.0 / np.sqrt(mse)))
+                        if per_band_mpsnr:
+                            all_metrics['masked_psnr'].append(float(np.mean(per_band_mpsnr)))
+
                 # 可视化第一个样本
                 if ii == 0 and self.configs.train.get('local_logging', False):
                     self.visualize_validation_sample(data, predictions, ii)
             
-            # 计算平均指标
-            avg_metrics = {k: np.mean(v) for k, v in all_metrics.items()}
+            # 计算平均指标（排除空的 masked_psnr 列表）
+            avg_metrics = {k: float(np.mean(v)) for k, v in all_metrics.items() if v}
             # 打印验证指标
+            masked_psnr_str = (
+                f" | Masked-PSNR: {avg_metrics['masked_psnr']:.4f}"
+                if 'masked_psnr' in avg_metrics else ""
+            )
             self.logger.info(
                 f"📊 Validation Metrics | "
                 f"PSNR: {avg_metrics['psnr']:.4f} | "
                 f"SSIM: {avg_metrics['ssim']:.4f} | "
                 f"ERGAS: {avg_metrics['ergas']:.4f} | "
                 f"SAM: {avg_metrics['sam']:.4f}"
+                + masked_psnr_str
             )
             
             # 记录指标

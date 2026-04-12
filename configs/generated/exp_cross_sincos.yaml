@@ -1,0 +1,3 @@
+# Auto-rebuilt alias
+defaults:
+  - ../ablation/ablation_3a_with_cross_attention_posenc_sincos.yaml

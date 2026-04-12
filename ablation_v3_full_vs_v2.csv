@@ -1,0 +1,12 @@
+active_groups,best_psnr,ergas,gate_alpha,gate_beta,post_tau,psnr,residual_first_l2,residual_second_l2,routing_entropy,run_dir,sam,scheme,second_active_groups,ssim,stage_first_scale,stage_phase,stage_second_scale
+,14.5568,11.084,,,,14.4733,,,,training_logs/experiments_v2/ablation_v2_5a_nopost_bestpre/2026-03-20_04-03-08,0.3528,v2_5a_nopost_bestpre,,0.3461,,,
+4.0,14.4919,11.3288,,,0.5,14.2991,,,1.3760244846343994,training_logs/experiments_v2/ablation_v2_5b_scheme1_gumbel/2026-03-20_04-31-41,0.3603,v2_5b_scheme1_gumbel,,0.3235,,,
+2.0,14.111,11.9023,,,0.0,13.8071,,,0.0,training_logs/experiments_v2/ablation_v2_5c_scheme3_dual_branch/2026-03-20_05-00-38,0.3814,v2_5c_scheme3_dual_branch,,0.2934,,,
+1.0,14.596,11.0604,,,0.0,14.4787,,,0.0,training_logs/experiments_v2/ablation_v2_5d_scheme6_matrix/2026-03-20_05-29-09,0.3526,v2_5d_scheme6_matrix,,0.3492,,,
+,14.5621,11.0721,,,,14.4809,,,,training_logs/experiments_v3/ablation_v3_5a_nopost_bestpre/2026-03-20_06-33-32,0.3524,v3_5a_nopost_bestpre,,0.3479,,,
+4.0,14.3818,11.3389,1.0,1.0,0.5,14.2464,0.21558913588523865,0.10935220122337341,1.370612382888794,training_logs/experiments_v3/ablation_v3_5e_scheme1_plus6/2026-03-20_07-04-35,0.3608,v3_5e_scheme1_plus6,1.0,0.3309,1.0,2.0,1.0
+2.0,14.381,11.3604,1.0,1.0,0.0,14.2933,0.18952597677707672,0.41461753845214844,0.0,training_logs/experiments_v3/ablation_v3_5f_scheme3_plus6/2026-03-20_07-39-57,0.3599,v3_5f_scheme3_plus6,1.0,0.3399,1.0,2.0,1.0
+4.0,14.4062,11.3157,1.0,1.0,0.5,14.2783,0.22684146463871002,0.0683913603425026,1.3760244846343994,training_logs/experiments_v3/ablation_v3_5e_scheme1_plus6_stage/2026-03-20_06-34-19,0.3613,v3_5e_scheme1_plus6_stage,1.0,0.3225,1.0,2.0,1.0
+2.0,14.0616,12.554,1.0,1.0,0.0,13.7085,0.28240257501602173,0.05211590602993965,0.0,training_logs/experiments_v3/ablation_v3_5f_scheme3_plus6_stage/2026-03-20_07-09-12,0.3826,v3_5f_scheme3_plus6_stage,1.0,0.2889,1.0,2.0,1.0
+4.0,14.4223,11.1507,0.4975552260875702,0.49906831979751587,0.6000000000000001,14.4223,0.2862689793109894,0.024337705224752426,1.3541518449783325,training_logs/experiments_v3/ablation_v3_5e_scheme1_plus6_stage_gated/2026-03-20_06-16-30,0.349,v3_5e_scheme1_plus6_stage_gated,1.0,0.3247,1.0,2.0,1.0
+2.0,14.5317,10.9447,0.49881792068481445,0.4990616738796234,0.0,14.5298,0.2651401162147522,0.08482992649078369,0.0,training_logs/experiments_v3/ablation_v3_5f_scheme3_plus6_stage_gated/2026-03-20_06-17-45,0.3456,v3_5f_scheme3_plus6_stage_gated,1.0,0.3297,1.0,2.0,1.0

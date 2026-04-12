@@ -10,7 +10,8 @@
 - 软掩膜生效判定：训练启动日志新增 `Mask Type` 与 `Soft Mask Sigma` 显示。
 - 推荐对照：`2b(hard)` vs `4a_soft_mask_test(soft)`。
 - 新增 `ablation_4c_mask_reduce_prob_or`：针对 `indicating_mask` 的时间聚合策略优化（`mean`→`prob_or/max`），使用独立 trainer，不影响主线代码。
-- 运行方式：`bash scripts/run_ablation_4c_mask_reduce_prob_or.sh 0`，建议对比链：`2b → 4a → 4c`（验证软掩膜与聚合策略叠加收益）。
+- 新增 `ablation_4d_mask_temporal_loss`：采用时相级 masked loss（每时相单独 loss 再聚合），同样使用独立 trainer，不影响主线代码。
+- 运行方式：`bash scripts/run_ablation_4c_mask_reduce_prob_or.sh 0` / `bash scripts/run_ablation_4d_mask_temporal_loss.sh 0`，建议对比链：`2b → 4a → 4c → 4d`（验证软掩膜 + 聚合策略 + 时相级损失的叠加收益）。
 - 预期收益：在单帧输出场景下，通常为稳定性小幅提升（约 `+0.1 ~ +0.3 dB`）。
 - 分析脚本已同步适配最新命名：
   - `scripts/analyze_ablation_results.py`
@@ -81,7 +82,7 @@
 | 2 | `ablation_2b_*` | +cross_attention | 16 | 跨模态注意力 |
 | 3 | `ablation_3a_*` | +sincos 位置编码 | 16 | DETR 风格 |
 | 3 | `ablation_3b_*` | +learnable 位置编码 | 16 | 可学习位置 |
-| 3 | `ablation_3c_*` | +concat 值拼接 | 16 | 拼接式位置 |
+| 3 | `ablation_3c_*` | +cross-value concat + learnable pos（复合） | 16 | 复合配置，不作为纯位置编码对照 |
 
 **公平性约束**（全链路一致）：
 ```yaml
@@ -125,7 +126,7 @@ enhanced_feat = fused_feat + out  (残差连接)
 |------|------|--------|--------|------|
 | **SinCos (DETR)** | $\sin(\text{pos}/10000^{2d/D})$ | **0** | ⭐⭐⭐⭐⭐ | ✅ 首选 |
 | **Learnable** | `nn.Parameter(...)` | $H \times W \times C$ | ⭐ | ❌ 参数多，易过拟合 |
-| **Concat** | 直接拼接到通道dim | 0 | ⭐⭐⭐⭐ | ⚠ 次选 |
+| **3c（当前）** | cross-value concat + learnable pos（复合配置） | - | - | ⚠ 不作为纯位置编码对照 |
 
 **为什么需要位置编码**：自注意力的排列不变性缺陷
 - 注意力只看 Q·K^T，不看像素坐标
@@ -259,7 +260,7 @@ QA 波段 (Landsat 8)
 | **🏆 2b: +Cross-Attn (硬)** | ✓ | 硬掩膜 | ✓ | - | **14.5225** | 0.3511 | 100 | **+2.2427** |
 | **3a: +SinCos (硬)** | ✓ | 硬掩膜 | ✓ | sincos | 13.5601 | 0.3527 | 100 | +1.2803 |
 | **3b: +Learnable (硬)** | ✓ | 硬掩膜 | ✓ | learnable | 14.5007 | 0.3424 | 900 | +2.2209 |
-| **3c: +Concat (硬)** | ✓ | 硬掩膜 | ✓ | concat | 14.4151 | 0.3616 | 1000 | +2.1353 |
+| **3c: +复合配置 (硬)** | ✓ | 硬掩膜 | ✓ | cross-value concat + learnable pos | 14.4151 | 0.3616 | 1000 | +2.1353 |
 | **【待验证】4x: +Soft Mask** | ✓ | **软掩膜** | ✓ | - | **?** | **?** | **?** | **预期 +0.3~0.5 dB** |
 
 **实验条件（严格统一）**：iterations=1500, seed=42, batch=[1,1], lr=0.0001
@@ -283,7 +284,7 @@ QA 波段 (Landsat 8)
 | **Mask Band (单独)** | **-0.10 dB** | ⚠️ 单独使用无效，需与Time Band配合 |
 | **SinCos 位置编码** | **-0.96 dB** | ❌ 严重负作用，可能破坏了特征表达 |
 | **Learnable 位置编码** | **-0.02 dB** | ❌ 轻微负作用，无实际贡献 |
-| **Concat 位置编码** | **-0.11 dB** | ❌ 负作用，不推荐使用 |
+| **3c 复合配置** | **-0.11 dB** | ⚠ 与 2b 相比下降，但不应归因于单一 concat 位置编码 |
 
 #### 📈 **累积增益路径**
 
@@ -571,8 +572,11 @@ def build_model(config, data_sample):
 #### **原因 4：indicating_mask 聚合过粗** （可优化，P2）
 
 ```
-当前：按时序平均掩膜，丢失时相级别细节
-      (1,T,H,W) → mean(T) → (1,H,W)
+当前主线：按时序 max 聚合掩膜，仍会丢失时相级别细节
+  (1,T,H,W) → max(T) → (1,H,W)
+
+4c：可选 mean/max/prob_or，但仍是先聚合到单张空间掩膜后单次 loss。
+4d：每时相单独计算 masked loss，再按策略聚合（时相级监督更细）。
 
 改进：按时相分别计算损失，再融合
   ∀t: loss_t = masked_loss(sr_t, gt_t, mask_t)
