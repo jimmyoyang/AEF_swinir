@@ -473,12 +473,41 @@ class TrainerAlphaSR(TrainerBase):
         # 计算损失（可选：按 indicating_mask 对无云像素加权）
         use_ind_mask = self.configs.train.get('use_indicating_mask_in_training', False)
         if use_ind_mask and data.get('indicating_mask') is not None:
-            # indicating_mask: (B,T,H,W) 或 (T,H,W) → 聚合到空间维 (B,1,H,W)
+            # indicating_mask 通常在 LR 空间，而预测在 SR 空间；需要先对齐分辨率再监督。
             ind_mask = data['indicating_mask'].float()
-            if ind_mask.ndim == 3:
-                ind_mask = ind_mask.unsqueeze(0)  # (1,T,H,W)
-            # 时序聚合：任一时相有效则该像素有效
-            spatial_mask = ind_mask.max(dim=1, keepdim=True)[0].clamp(0, 1)  # (B,1,H,W)
+
+            # 归一化到 (B,T,H,W) 或 (B,1,H,W)
+            if ind_mask.ndim == 5:
+                if ind_mask.shape[1] == 1:
+                    ind_mask = ind_mask.squeeze(1)
+                elif ind_mask.shape[2] == 1:
+                    ind_mask = ind_mask.squeeze(2)
+                else:
+                    raise ValueError(f"Unsupported indicating_mask shape: {tuple(ind_mask.shape)}")
+            elif ind_mask.ndim == 3:
+                ind_mask = ind_mask.unsqueeze(0)
+            elif ind_mask.ndim != 4:
+                raise ValueError(f"Unexpected indicating_mask ndim={ind_mask.ndim}, shape={tuple(ind_mask.shape)}")
+
+            if ind_mask.shape[0] != predictions.shape[0]:
+                if ind_mask.shape[0] == 1:
+                    ind_mask = ind_mask.expand(predictions.shape[0], -1, -1, -1)
+                else:
+                    raise ValueError(
+                        f"Batch mismatch between indicating_mask ({ind_mask.shape[0]}) and predictions ({predictions.shape[0]})"
+                    )
+
+            # 时序聚合：任一时相有效则该像素有效 -> (B,1,H,W)
+            spatial_mask = ind_mask.max(dim=1, keepdim=True)[0].clamp(0, 1)
+            # 对齐到 SR 尺度
+            if spatial_mask.shape[-2:] != predictions.shape[-2:]:
+                spatial_mask = F.interpolate(
+                    spatial_mask,
+                    size=predictions.shape[-2:],
+                    mode='bilinear',
+                    align_corners=False
+                )
+
             spatial_mask = spatial_mask.expand_as(predictions)
             valid_pixels = spatial_mask.sum().clamp(min=1)
             loss = self.criterion(predictions * spatial_mask, data['gt'] * spatial_mask)

@@ -42,12 +42,14 @@ data:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
       # 【修改】使用您指定的绝对路径
-      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/train/LR"
-      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/train/HR"
+      # lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/train/LR"
+      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_32samples/train/LR"
+      # hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/train/HR"
+      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_32samples/train/HR"
       # 0 表示不过滤，使用全量训练样本
-      sample_num: 0
-      cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/cache/train"
-      use_tile_cache: true
+      sample_num: 4
+      # cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/cache/train"
+      # use_tile_cache: true
       # tile_cache_mem_size: 128
       # slow_sample_warn_sec: 2.0
       # max_timesteps_per_sample: 6
@@ -55,11 +57,13 @@ data:
   val:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/val/LR"
-      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/val/HR"
-      sample_num: 8
-      cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/cache/val"
-      use_tile_cache: true
+      # lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/val/LR"
+      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_32samples/val/LR"
+      # hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/val/HR"
+      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_32samples/val/HR"
+      sample_num: 1
+      # cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/cache/val"
+      # use_tile_cache: true
       # tile_cache_mem_size: 32
       # slow_sample_warn_sec: 2.0
       # max_timesteps_per_sample: 6
@@ -132,7 +136,7 @@ train:
   save_dir: "./training_logs/anytime_swinir" 
   # batch: [10, 2] # [train_batch_size, val_batch_size]
   batch: [1, 1]
-  iterations: 20000 # 针对大规模数据集
+  iterations: 2000 # 针对大规模数据集
   lr: 0.0001
   lr_schedule: "ReduceLROnPlateau"
   lr_schedule_params:
@@ -158,8 +162,8 @@ train:
   
   # 日志与保存频率
   log_freq: [100, 200, 200]
-  save_freq: 5000
-  val_freq: 5000
+  save_freq: 500
+  val_freq: 500
   
   # 可视化相关
   rgb_chn: [2, 1, 0] # Landsat: Red(B4), Green(B3), Blue(B2) -> 对应索引

@@ -9,6 +9,7 @@
 #   - 将每个时相的瓦片保存为独立文件 (e.g., 20180101_tile_0_0.tif)。
 #   - 使用固定的随机种子，将所有瓦片物理分割到 train/val/test 文件夹。
 # ==============================================================================
+import argparse
 import os
 import re
 import glob
@@ -33,7 +34,7 @@ ABSOLUTE_PATH="/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data"
 BASE_DATA_DIR=Path(ABSOLUTE_PATH)
 RAW_LANDSAT_DIR = BASE_DATA_DIR / "raw_landsat"
 RAW_ALPHA_DIR = BASE_DATA_DIR / "raw_alphaearth"
-PROCESSED_DATA_ROOT = BASE_DATA_DIR / "processed_data_SR_10m"
+PROCESSED_DATA_ROOT = BASE_DATA_DIR / "processed_data_SR_10m_32samples"
 
 # ABSOLUTE_PATH="/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/Cloud_test"
 # BASE_DATA_DIR=Path(ABSOLUTE_PATH)
@@ -54,19 +55,47 @@ RANDOM_SEED = 42
 # 有效像素比例阈值：一个瓦片中有效像素必须达到这个比例才会被保留
 VALID_PIXEL_RATIO_THRESHOLD = 0.98 
 HR_BAND_REQUIREMENT_RATIO = 1.0 
-NUM_WORKERS =os.cpu_count() # 并行处理的CPU核心数
+NUM_WORKERS = max(1, (os.cpu_count() or 1) // 2)
+# 与训练配置 `hr_zero_ratio_filter_threshold` 对齐：仅写出 max(LR 零像素占比, HR 零像素占比) 不超过此值的瓦片，
+# 这样 patch_stats.log 与磁盘上的 tif 一致，AnytimeTemporalDataset 的 pair-zero 过滤不会把整数据集删光。
+PAIR_ZERO_RATIO_MAX = 0.05
+# 采样数量：None 表示 STAGE 2 处理全部候选直到结束；正整数表示 STAGE 2 在成功写出 N 对（通过 pair-zero）后停止。
+# STAGE 1 始终跑完：枚举所有掩膜通过的候选任务；不再在 STAGE 1 用 N×倍率截断。
+SAMPLE_NUM = None
 
 # ==============================================================================
 # 2. "工人" 函数 (用于并行处理，无需修改)
 # ==============================================================================
 
+def patch_passes_planning_thresholds(lr_tile, hr_tile):
+    """
+    与 STAGE 1 的 combined_mask 一致：LR 每像素全波段非 nan 且非 0；
+    HR 每像素非 nan 的波段数 >= required_bands；再下采样到 LR 网格，块内 3x3 HR 像素须全为 True。
+    最后要求 patch 内 combined 有效像素比例 >= VALID_PIXEL_RATIO_THRESHOLD。
+    """
+    required_bands = int(NUM_ALPHA_BANDS_TO_STACK * HR_BAND_REQUIREMENT_RATIO)
+    lr_valid = (~np.any(np.isnan(lr_tile), axis=0)) & np.all(lr_tile != 0, axis=0)
+    valid_hr_full = np.sum(~np.isnan(hr_tile), axis=0) >= required_bands
+    ph, pw = lr_valid.shape
+    hr_h, hr_w = valid_hr_full.shape
+    if hr_h != ph * SCALE_FACTOR or hr_w != pw * SCALE_FACTOR:
+        return False
+    hr_valid_lr_res = valid_hr_full.reshape(ph, SCALE_FACTOR, pw, SCALE_FACTOR).all(axis=(1, 3))
+    combined = lr_valid & hr_valid_lr_res
+    return np.count_nonzero(combined) / combined.size >= VALID_PIXEL_RATIO_THRESHOLD
+
+
 def create_one_tile(args):
     """
     内存高效的函数：只创建一对 LR/HR 瓦片。
     只读取所需的小窗口，绝不加载整个文件。
-    接收一个元组作为参数以适配 Pool.starmap。
+    args: (landsat_path, alpha_band_paths, r, c[, pair_zero_max]) — pair_zero_max 与训练 hr_zero_ratio_filter_threshold 一致。
     """
-    landsat_path, alpha_band_paths, r, c = args
+    if len(args) == 5:
+        landsat_path, alpha_band_paths, r, c, pair_zero_max = args
+    else:
+        landsat_path, alpha_band_paths, r, c = args
+        pair_zero_max = PAIR_ZERO_RATIO_MAX
     try:
         date_str = re.search(r'_(\d{8})_', Path(landsat_path).name).group(1)
         
@@ -74,14 +103,6 @@ def create_one_tile(args):
             lr_meta = lr_src.meta
             lr_win = Window(c, r, LR_PATCH_SIZE, LR_PATCH_SIZE)
             lr_tile = lr_src.read(window=lr_win)
-        # 统计LR patch有效性
-        lr_nan_ratio = np.isnan(lr_tile).sum() / lr_tile.size
-        lr_zero_ratio = np.sum(lr_tile == 0) / lr_tile.size
-        lr_min = np.nanmin(lr_tile)
-        lr_max = np.nanmax(lr_tile)
-        # 筛除无效LR patch
-        if lr_nan_ratio > 0.02 or lr_zero_ratio > 0.98:
-            return None
 
         with rasterio.open(alpha_band_paths[0]) as first_hr_src:
             hr_meta = first_hr_src.meta
@@ -93,12 +114,23 @@ def create_one_tile(args):
         for i, band_path in enumerate(alpha_band_paths):
             with rasterio.open(band_path) as band_src:
                 hr_tile[i, :, :] = band_src.read(1, window=hr_win)
-        # 统计HR patch有效性
-        hr_nan_ratio = np.isnan(hr_tile).sum() / hr_tile.size
-        hr_zero_ratio = np.sum(hr_tile == 0) / hr_tile.size
+
+        # STAGE 1 规划掩码（与 patch_passes_planning_thresholds 一致）；pair-zero 在下方单独筛，与训练 manifest 对齐
+        if not patch_passes_planning_thresholds(lr_tile, hr_tile):
+            return None
+
+        lr_min = np.nanmin(lr_tile)
+        lr_max = np.nanmax(lr_tile)
         hr_min = np.nanmin(hr_tile)
         hr_max = np.nanmax(hr_tile)
-        if hr_nan_ratio > 0.02 or hr_zero_ratio > 0.98:
+        lr_nan_ratio = np.isnan(lr_tile).sum() / lr_tile.size
+        lr_zero_ratio = np.sum(lr_tile == 0) / lr_tile.size
+        hr_nan_ratio = np.isnan(hr_tile).sum() / hr_tile.size
+        hr_zero_ratio = np.sum(hr_tile == 0) / hr_tile.size
+
+        # 与 datapipe.datasets._filter_files_by_hr_zero_ratio / manifest 一致：超过阈值则不写盘、不写 patch_stats
+        pair_zero_ratio = max(lr_zero_ratio, hr_zero_ratio)
+        if pair_zero_ratio > pair_zero_max:
             return None
 
         # 可选：patch归一化检查（如需归一化可在此处加）
@@ -107,10 +139,11 @@ def create_one_tile(args):
         # hr_tile = (hr_tile - hr_min) / (hr_max - hr_min + 1e-8)
         # ================== Landsat8 LR patch物理还原与归一化 ==================
         lr_tile = lr_tile.astype(np.float32)
-        lr_tile[0:9] *= 0.0001  # B1-B7, B10, B11
-        lr_tile[0:7] = np.clip(lr_tile[0:7], 0, 1)
-        lr_tile[7:9] = (lr_tile[7:9] - 250.0) / 80.0
-        lr_tile[7:9] = np.clip(lr_tile[7:9], 0, 1)
+        n_lr_bands = min(10, lr_tile.shape[0])
+        for i in range(n_lr_bands):
+            lr_tile[i] = lr_tile[i] - np.nanmin(lr_tile[i])
+            bmax = np.nanmax(lr_tile[i])
+            lr_tile[i] = lr_tile[i] / (bmax if bmax > 1e-8 else 1.0)
         # ================== END LR归一化 ==================
         # 记录patch统计信息
         try:
@@ -151,10 +184,21 @@ def create_one_tile(args):
 # 3. 主处理函数 (新的并行调度核心)
 # ==============================================================================
 
-def main_processing():
+def main_processing(sample_num=None, pair_zero_max=None):
     """
     采用两阶段并行处理，并融合您脚本中的所有检查逻辑。
+
+    sample_num: 若为 None 则使用脚本中的 SAMPLE_NUM；否则覆盖之。
+                None：STAGE 1 枚举全部掩膜候选，STAGE 2 全部处理；正整数：STAGE 1 仍枚举全部候选，
+                STAGE 2 依次处理直至成功写出 N 对（通过 pair-zero）后停止。
+    pair_zero_max: 默认 PAIR_ZERO_RATIO_MAX，应与 YAML 中 hr_zero_ratio_filter_threshold 一致。
     """
+    limit = SAMPLE_NUM if sample_num is None else sample_num
+    if limit is not None and limit <= 0:
+        print("❌ CRITICAL: sample_num / SAMPLE_NUM must be None (all) or a positive integer.", file=sys.stderr)
+        return
+    pzm = float(PAIR_ZERO_RATIO_MAX if pair_zero_max is None else pair_zero_max)
+
     # 清理旧数据
     if PROCESSED_DATA_ROOT.exists():
         print(f"[WARN] Processed data dir '{PROCESSED_DATA_ROOT}' already exists.")
@@ -171,8 +215,17 @@ def main_processing():
     (temp_dir / "LR").mkdir(parents=True)
     (temp_dir / "HR").mkdir(parents=True)
     print(f"[INFO] Created temporary directory: {temp_dir}")
+    print(
+        f"[INFO] Pair-zero export filter: max(LR,HR) zero-pixel ratio <= {pzm:.4f} "
+        f"(align with config hr_zero_ratio_filter_threshold; rejects candidates before write)"
+    )
 
-    print("\n===== STAGE 1: Planning all tiling tasks (this is fast) =====")
+    stage2_note = (
+        f"STAGE 2 will stop after {limit} successful exports (pair-zero OK)."
+        if limit is not None
+        else "STAGE 2 will process every planned task."
+    )
+    print(f"\n===== STAGE 1: Planning ALL mask-valid tiling tasks ({stage2_note}) =====")
     tasks = []
     
     all_landsat_files = sorted(RAW_LANDSAT_DIR.glob(f'L8_{REF_PATH}{REF_ROW}_*_Masked.tif'))
@@ -182,7 +235,7 @@ def main_processing():
 
     print(f"[INFO] Found {len(all_landsat_files)} time steps to process.")
     
-    # 遍历所有时相，生成有效瓦片的坐标
+    # 遍历时相，生成所有掩膜通过的瓦片坐标（不根据 sample_num 截断）
     for landsat_path in tqdm(all_landsat_files, desc="Scanning dates for task planning"):
         date_str = re.search(r'_(\d{8})_', landsat_path.name).group(1)
         
@@ -218,28 +271,59 @@ def main_processing():
         for r in range(0, proc_h - LR_PATCH_SIZE + 1, LR_PATCH_SIZE):
             for c in range(0, proc_w - LR_PATCH_SIZE + 1, LR_PATCH_SIZE):
                 if np.count_nonzero(combined_mask[r:r+LR_PATCH_SIZE, c:c+LR_PATCH_SIZE]) / (LR_PATCH_SIZE**2) >= VALID_PIXEL_RATIO_THRESHOLD:
-                    tasks.append((str(landsat_path), alpha_paths_str, r, c))
+                    tasks.append((str(landsat_path), alpha_paths_str, r, c, pzm))
     
     if not tasks:
         print("❌ CRITICAL: No valid tiles found to process. Check data quality or thresholds.", file=sys.stderr)
         return
         
-    print(f"\n✅ Task planning complete. Found {len(tasks)} potential tiles to create across all time steps.")
+    print(
+        f"\n✅ STAGE 1 done. Planned {len(tasks)} candidate tasks (mask-valid). "
+        + (f"STAGE 2 target: {limit} exports passing pair-zero filter." if limit is not None else "STAGE 2: process all.")
+    )
 
-    effective_workers = min(NUM_WORKERS, os.cpu_count()) if NUM_WORKERS > 0 else os.cpu_count()
+    _cpu = os.cpu_count() or 1
+    effective_workers = int(min(NUM_WORKERS, _cpu) if NUM_WORKERS > 0 else _cpu)
     print(f"\n===== STAGE 2: Starting parallel tiling with {effective_workers} CPU cores... =====")
 
-    # 使用多进程并行创建瓦片
     successful_count = 0
-    with Pool(processes=effective_workers) as pool:
+    early_stop_success = False
+    pool = Pool(processes=effective_workers)
+    try:
         for result in tqdm(pool.imap_unordered(create_one_tile, tasks), total=len(tasks), desc="Processing Tiles"):
             if result:
                 fname, lr_tile, lr_meta, hr_tile, hr_meta = result
-                with rasterio.open(temp_dir / "LR" / fname, 'w', **lr_meta) as dst: dst.write(lr_tile)
-                with rasterio.open(temp_dir / "HR" / fname, 'w', **hr_meta) as dst: dst.write(hr_tile)
+                with rasterio.open(temp_dir / "LR" / fname, "w", **lr_meta) as dst:
+                    dst.write(lr_tile)
+                with rasterio.open(temp_dir / "HR" / fname, "w", **hr_meta) as dst:
+                    dst.write(hr_tile)
                 successful_count += 1
+                if limit is not None and successful_count >= limit:
+                    print(f"\n✅ STAGE 2 early stop: got {limit} tiles passing pair-zero filter.")
+                    early_stop_success = True
+                    break
+    finally:
+        if early_stop_success:
+            pool.terminate()
+        else:
+            pool.close()
+        pool.join()
 
-    print(f"\n✅ Parallel processing complete. Successfully created {successful_count} tiles.")
+    print(f"\n✅ STAGE 2 complete. Successfully created {successful_count} tiles.")
+    if limit is not None and successful_count < limit:
+        print(
+            f"⚠️ [WARN] Only {successful_count}/{limit} tiles passed pair-zero filter (<= {pzm:.4f}) "
+            f"after scanning {len(tasks)} candidates. Add more scenes/tiles or raise --pair-zero-max / training threshold.",
+            file=sys.stderr,
+        )
+    if successful_count == 0:
+        print(
+            f"❌ CRITICAL: No tiles passed pair-zero filter (<= {pzm:.4f}). "
+            "Your HR/LR patches may have too many literal zeros; try a higher --pair-zero-max or check data nodata handling.",
+            file=sys.stderr,
+        )
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return
 
     print("\n===== STAGE 3: Shuffling and splitting the dataset... =====")
     # 注意：这里的划分是基于瓦片ID，而不是单个文件，以确保同一地理位置的所有时相都在同一个数据集中
@@ -296,4 +380,20 @@ def main_processing():
 # 4. 脚本执行入口
 # ==============================================================================
 if __name__ == '__main__':
-    main_processing()
+    parser = argparse.ArgumentParser(description="Prepare local LR/HR tiles from Landsat + AlphaEarth.")
+    parser.add_argument(
+        "--sample-num",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Target successful LR/HR pairs after pair-zero filter: STAGE 1 plans ALL mask-valid tasks, STAGE 2 stops after N successes (overrides SAMPLE_NUM). Omit = use SAMPLE_NUM; both unset = export all passing.",
+    )
+    parser.add_argument(
+        "--pair-zero-max",
+        type=float,
+        default=None,
+        metavar="T",
+        help=f"Max allowed max(LR,HR) zero-pixel ratio for export (default: {PAIR_ZERO_RATIO_MAX}, same as training hr_zero_ratio_filter_threshold).",
+    )
+    args = parser.parse_args()
+    main_processing(sample_num=args.sample_num, pair_zero_max=args.pair_zero_max)

@@ -23,8 +23,7 @@ class PreprocessedTileDataset(torch.utils.data.Dataset):
             self.hr_dir = params['hr_dir']
             
             sample_num = params.get('sample_num', None)
-            if sample_num and sample_num > 0 and sample_num < len(self.lr_files):
-                self.lr_files = self.lr_files[:sample_num]
+            target_n = sample_num if (sample_num and sample_num > 0) else None
 
             self.enable_hr_zero_filter = bool(params.get('enable_hr_zero_filter', True))
             self.hr_zero_ratio_threshold = float(params.get('hr_zero_ratio_filter_threshold', 0.05))
@@ -35,6 +34,7 @@ class PreprocessedTileDataset(torch.utils.data.Dataset):
                     self.lr_files,
                     zero_ratio_map,
                     self.hr_zero_ratio_threshold,
+                    target_sample_num=target_n,
                 )
                 print(
                     f"[Dataset INFO] Pair-zero filter enabled: threshold>{self.hr_zero_ratio_threshold:.2f}, "
@@ -45,7 +45,10 @@ class PreprocessedTileDataset(torch.utils.data.Dataset):
                         f"[Dataset WARN] No samples matched {self.hr_zero_ratio_manifest}; "
                         "pair-zero filtering was skipped for this dataset."
                     )
-            
+            else:
+                if target_n is not None and target_n < len(self.lr_files):
+                    self.lr_files = self.lr_files[:target_n]
+
             print(f"[Dataset INFO] Initialized in NORMAL mode. Found {len(self.lr_files)} images in '{lr_dir}'.")
         
         self.need_path = params.get('need_path', False)
@@ -169,14 +172,19 @@ def _load_hr_zero_ratio_manifest(manifest_path):
     return zero_ratio_map
 
 
-def _filter_files_by_hr_zero_ratio(lr_files, zero_ratio_map, threshold):
+def _filter_files_by_hr_zero_ratio(lr_files, zero_ratio_map, threshold, target_sample_num=None):
     if threshold is None:
-        return list(lr_files), 0, 0
+        out = list(lr_files)
+        if target_sample_num is not None and target_sample_num > 0:
+            out = out[:target_sample_num]
+        return out, 0, 0
 
     kept_files = []
     removed_count = 0
     matched_count = 0
     for lr_path in lr_files:
+        if target_sample_num is not None and target_sample_num > 0 and len(kept_files) >= target_sample_num:
+            break
         key = Path(lr_path).name
         zero_ratio = zero_ratio_map.get(key)
         if zero_ratio is None:
@@ -216,6 +224,7 @@ def robust_per_image_normalize(img, lo=1, hi=99):
     """
     对每个通道独立使用其1%和99%分位点进行拉伸，然后归一化到[-1, 1]。
     img: 输入的Numpy数组，形状为 (C, H, W)。
+    含 NaN/Inf 的波段使用 nanpercentile，避免训练中出现全 NaN 张量。
     """
     img_float = img.astype(np.float32)
     normalized_bands = []
@@ -225,18 +234,22 @@ def robust_per_image_normalize(img, lo=1, hi=99):
         if np.all(band == 0):
             normalized_bands.append(band)
             continue
-        
-        lo_p, hi_p = np.percentile(band, (lo, hi))
-        
-        # 防止分母为零
-        if hi_p - lo_p < 1e-6:
-            normalized_band = np.zeros_like(band)
-        else:
-            clipped_band = np.clip(band, lo_p, hi_p)
-            normalized_band = (clipped_band - lo_p) / (hi_p - lo_p)
-        
-        normalized_bands.append(normalized_band * 2 - 1) # 缩放到 [-1, 1]
-        
+
+        if not np.isfinite(band).any():
+            normalized_bands.append(np.zeros_like(band))
+            continue
+
+        pct = np.nanpercentile if np.any(~np.isfinite(band)) else np.percentile
+        lo_p, hi_p = pct(band, (lo, hi))
+
+        if not np.isfinite(lo_p) or not np.isfinite(hi_p) or hi_p - lo_p < 1e-6:
+            normalized_bands.append(np.zeros_like(band))
+            continue
+
+        clipped_band = np.clip(np.nan_to_num(band, nan=lo_p, posinf=hi_p, neginf=lo_p), lo_p, hi_p)
+        normalized_band = (clipped_band - lo_p) / (hi_p - lo_p)
+        normalized_bands.append(normalized_band * 2 - 1)  # 缩放到 [-1, 1]
+
     return np.stack(normalized_bands, axis=0)
 
 
@@ -398,6 +411,8 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         self.hr_zero_ratio_manifest = params.get('hr_zero_ratio_manifest', 'patch_stats.log')
         self.pre_filter_sample_num = params.get('pre_filter_sample_num', None)
         self.pre_filter_seed = int(params.get('pre_filter_seed', 0))
+        sample_num = params.get('sample_num', None)
+        self._target_sample_num = sample_num if (sample_num and sample_num > 0) else None
         self._pair_zero_ratio_map = _load_hr_zero_ratio_manifest(self.hr_zero_ratio_manifest) if self.enable_hr_zero_filter else {}
         self._tile_to_lr_files = defaultdict(list)
 
@@ -432,6 +447,8 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
             matched_count = 0
             removed_count = 0
             for tile_id in self.tile_ids:
+                if self._target_sample_num is not None and len(kept_tile_ids) >= self._target_sample_num:
+                    break
                 all_lr_files = self._tile_to_lr_files.get(tile_id, [])
                 filtered_lr_files, removed_one, matched_one = _filter_files_by_hr_zero_ratio(
                     all_lr_files,
@@ -456,10 +473,10 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                     "pair-zero filtering was skipped for this dataset."
                 )
         
-        # (保留 sample_num 逻辑)
-        sample_num = params.get('sample_num', None)
-        if sample_num and 0 < sample_num < len(self.tile_ids):
-            self.tile_ids = self.tile_ids[:sample_num]
+        # sample_num：未启用 pair-zero 过滤时仍截取前 N；启用时已在上方按过滤结果凑满 N 个 tile（若不足则全保留）
+        if not self.enable_hr_zero_filter and self._target_sample_num is not None:
+            if self._target_sample_num < len(self.tile_ids):
+                self.tile_ids = self.tile_ids[: self._target_sample_num]
         
         print(f"[Dataset INFO] Initialized for {len(self.tile_ids)} tile locations.")
         print(f"  - Time Feature Injection: {'Enabled' if self.use_time_band else 'Disabled'}")

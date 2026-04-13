@@ -84,15 +84,27 @@ class TrainerAlphaSRMaskAblation(TrainerAlphaSR):
 
             mask_bchw = mask_b1hw.expand(-1, predictions.shape[1], -1, -1)
 
+            valid_pixels = mask_bchw.sum()
+            if valid_pixels <= 0:
+                if self.rank == 0:
+                    self.logger.warning(
+                        f"Iter {self.current_iters}: indicating_mask is all-zero after resize; skip step (would risk NaN in SSIM/MSE)."
+                    )
+                return
+
             masked_predictions = predictions * mask_bchw
             masked_gt = gt * mask_bchw
             loss = self.criterion(masked_predictions, masked_gt)
-
-            valid_pixels = mask_bchw.sum()
-            if valid_pixels > 0:
-                loss = loss * (predictions.numel() / valid_pixels)
+            loss = loss * (predictions.numel() / valid_pixels)
         else:
             loss = self.criterion(predictions, gt)
+
+        if not torch.isfinite(loss).all():
+            if self.rank == 0:
+                self.logger.warning(
+                    f"Iter {self.current_iters}: non-finite loss={loss.detach()}; skip backward. Check LR/GT for NaN (run test_lr_tile_values.py)."
+                )
+            return
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -119,13 +131,13 @@ class TrainerAlphaSRMaskTemporalLossAblation(TrainerAlphaSRMaskAblation):
             )
 
         mask_bchw = mask_b1hw.expand(-1, predictions.shape[1], -1, -1)
+        valid_pixels = mask_bchw.sum()
+        if valid_pixels <= 0:
+            return predictions.new_tensor(0.0)
+
         masked_predictions = predictions * mask_bchw
         masked_gt = gt * mask_bchw
-
-        loss = self.criterion(masked_predictions, masked_gt)
-        valid_pixels = mask_bchw.sum()
-        if valid_pixels > 0:
-            loss = loss * (predictions.numel() / valid_pixels)
+        loss = self.criterion(masked_predictions, masked_gt) * (predictions.numel() / valid_pixels)
         return loss
 
     def training_step(self, data):
@@ -181,6 +193,13 @@ class TrainerAlphaSRMaskTemporalLossAblation(TrainerAlphaSRMaskAblation):
                 loss = (losses * weights).sum() / denom
             else:
                 raise ValueError(f"Unknown temporal_loss_reduce strategy: {temporal_loss_reduce}")
+
+        if not torch.isfinite(loss).all():
+            if self.rank == 0:
+                self.logger.warning(
+                    f"Iter {self.current_iters}: non-finite temporal loss; skip backward. Check data / masks."
+                )
+            return
 
         self.optimizer.zero_grad()
         loss.backward()

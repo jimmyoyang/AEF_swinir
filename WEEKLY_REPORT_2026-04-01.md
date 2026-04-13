@@ -45,6 +45,32 @@ def normalize_landsat8_patch(patch):
     return patch
 ```
 
+  ### 2.1 归一化代码具体位置索引
+
+  - 采样后物理归一化主位置： [datapipe/prepare_data_local.py](datapipe/prepare_data_local.py#L110) ，这里直接对 LR patch 执行 `0.0001` 缩放、光学波段 clip、B10/B11 温度归一化。
+  - 旧版 dataset 的统一归一化入口： [datapipe/datasets.py](datapipe/datasets.py#L83) ，`__getitem__` 中对 LR/HR 都调用 `robust_per_image_normalize()`。
+  - 旧版分位数归一化函数： [datapipe/datasets.py](datapipe/datasets.py#L215) ，定义了 `robust_per_image_normalize()`，负责按通道做 1% / 99% 分位拉伸并映射到 `[-1, 1]`。
+  - 多时相数据中 HR 归一化位置： [datapipe/datasets.py](datapipe/datasets.py#L582) ，以及 LR 反射率归一化位置： [datapipe/datasets.py](datapipe/datasets.py#L667) 。
+  - 新版带物理归一化 dataset 的 LR 入口： [datapipe/datasets_with_lr_norm.py](datapipe/datasets_with_lr_norm.py#L87) ，先调用 `apply_landsat_lr_physical_normalization()`，再做分位数归一化。
+  - 新版物理归一化函数本体： [datapipe/datasets_with_lr_norm.py](datapipe/datasets_with_lr_norm.py#L255) ，这里集中处理反射率和热红外波段的缩放与 clip。
+  - 新版分位数归一化函数： [datapipe/datasets_with_lr_norm.py](datapipe/datasets_with_lr_norm.py#L227) ，与旧版逻辑类似，但支持更灵活的参数配置。
+  - 新版多时相 HR/LR 归一化位置： [datapipe/datasets_with_lr_norm.py](datapipe/datasets_with_lr_norm.py#L558) 、[datapipe/datasets_with_lr_norm.py](datapipe/datasets_with_lr_norm.py#L576) 、[datapipe/datasets_with_lr_norm.py](datapipe/datasets_with_lr_norm.py#L626) 。
+
+### 2.2 归一化参考文档（官方）
+
+- Earth Engine 数据集说明（Landsat 8 Collection 2 Level-2）： https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LC08_C02_T1_L2
+  - 该页面给出示例缩放：光学波段 `SR_B.*` 常见处理为 `* 0.0000275 + (-0.2)`，热红外地表温度波段 `ST_B.*` 常见处理为 `* 0.00341802 + 149.0`。
+- Earth Engine 数据集说明（Landsat 8 Collection 2 TOA）： https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LC08_C02_T1_TOA
+  - 该页面明确 TOA 产品为辐射定标后的 TOA 反射率产品，系数来自元数据。
+- Earth Engine Landsat 使用指南（官方总览）： https://developers.google.com/earth-engine/guides/landsat
+  - 用于核对不同产品线（TOA / SR / ST）的波段含义和推荐处理流程。
+- Landsat 8 Data Users Handbook（USGS）： https://www.usgs.gov/landsat-missions/landsat-8-data-users-handbook
+  - 用于核对 B10/B11 的物理定义、单位和辐射定标背景。
+- Landsat Collection 2 QA Bands（USGS）： https://www.usgs.gov/landsat-missions/landsat-collection-2-quality-assessment-bands
+  - 用于云/阴影/雪等 QA 位定义，支撑云掩码或软掩码构造。
+
+> 口径提醒：不同产品的缩放系数不同（TOA vs Collection 2 Level-2）。实验中必须先固定数据源，再固定归一化参数，避免跨产品混用系数。
+
 **注意事项：**
 - 16-bit 存储时，65535 通常为无效值，需先设为 NaN 或 0。
 - AlphaEarth HR patch 已为 uint8，min/max 检查后无需还原，直接归一化到 [0,1]。

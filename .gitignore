@@ -17,3 +17,7 @@ patch_stats.log
 __pycache__/
 *.py[cod]
 *.pth
+
+# 下载/临时副本（勿提交）
+wget-log*
+* copy.py
