@@ -2,7 +2,7 @@
 set -euo pipefail
 
 GPU_ID="${1:-0}"
-CFG_PATH="${2:-configs/config_swinir.yaml}"
+CFG_PATH="${2:-configs/ablation/ablation_4f_mask_prob_or_learnable_pos_no_cross.yaml}"
 MODE="${3:-train}"
 
 export CUDA_VISIBLE_DEVICES="${GPU_ID}"

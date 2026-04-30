@@ -50,6 +50,12 @@ class TrainerAlphaSRMaskAblation(TrainerAlphaSR):
         strategy = self.configs.train.get('indicating_mask_reduce', 'prob_or')
         mask_bt_hw = mask_bt_hw.clamp(0.0, 1.0)
 
+        # 可选：先把软权重阈值化为硬掩膜，从而实现“云像素完全剔除、非加权”。
+        # 说明：先二值化再 prob_or/max/mean，能保证 prob_or 输出也为 {0,1}。
+        if bool(self.configs.train.get('indicating_mask_binarize', False)):
+            thr = float(self.configs.train.get('indicating_mask_threshold', 0.5))
+            mask_bt_hw = (mask_bt_hw >= thr).float()
+
         if mask_bt_hw.shape[1] == 1:
             return mask_bt_hw
 
@@ -150,6 +156,10 @@ class TrainerAlphaSRMaskTemporalLossAblation(TrainerAlphaSRMaskAblation):
         else:
             mask_bt_hw = self._to_bthw(indicating_mask, batch_size=predictions.shape[0])  # (B,T,H,W)
             mask_bt_hw = mask_bt_hw.clamp(0.0, 1.0)
+
+            if bool(self.configs.train.get('indicating_mask_binarize', False)):
+                thr = float(self.configs.train.get('indicating_mask_threshold', 0.5))
+                mask_bt_hw = (mask_bt_hw >= thr).float()
 
             temporal_validity = data.get('mask', None)  # (B,T) or (T,)
             if temporal_validity is not None:

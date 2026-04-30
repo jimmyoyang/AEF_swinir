@@ -27,29 +27,25 @@ data:
   train:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      # lr_dir: "./data/processed_data_SR_10m_2/train/LR"
       lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/LR"
-      # hr_dir: "./data/processed_data_SR_10m_2/train/HR"
       hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR"
-      sample_num: 16      
+      sample_num: 16
       enable_hr_zero_filter: true
       hr_zero_ratio_filter_threshold: 0.05
       hr_zero_ratio_manifest: "./patch_stats.log"
       cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/train"
-      use_tile_cache: true  
+      use_tile_cache: true
   val:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      # lr_dir: "./data/processed_data_SR_10m_2/val/LR"
       lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/LR"
-      # hr_dir: "./data/processed_data_SR_10m_2/val/HR"
       hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR"
       sample_num: 8
       enable_hr_zero_filter: true
       hr_zero_ratio_filter_threshold: 0.05
       hr_zero_ratio_manifest: "./patch_stats.log"
       cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/val"
-      use_tile_cache: true  
+      use_tile_cache: true
   test:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
@@ -58,9 +54,7 @@ data:
       enable_hr_zero_filter: true
       hr_zero_ratio_filter_threshold: 0.05
       hr_zero_ratio_manifest: "./patch_stats.log"
-      sample_num: 8      
-      # cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/cache/test"
-      # use_tile_cache: true
+      sample_num: 8
 
 trainer:
   target: trainer_mask_ablation.TrainerAlphaSRMaskAblation
@@ -85,13 +79,10 @@ features:
       soft_mask_sigma: 2.0
 
 train:
-  save_dir: "./training_logs/experiments/ablation_4f_mask_prob_or_learnable_pos_no_cross"
-  # batch: [1, 1]
+  save_dir: "./training_logs/experiments/ablation_4f_drop_clouds_hardremove"
   batch: [16, 8]
   iterations: 20000
   lr: 0.0001
-  # 实际仅用 ReduceLROnPlateau(mode=max)，监控验证 PSNR；仅当 PSNR 连续 patience 次未创新高时才乘 factor 降 LR。
-  # 若 PSNR 每次微涨则 LR 长期不降：可降低 patience、或加大 threshold（避免噪声算“提升”）、或略增大 val_freq。
   lr_schedule: "ReduceLROnPlateau"
   lr_schedule_params:
     patience: 3
@@ -103,14 +94,18 @@ train:
   weight_decay: 0.0
   global_seeding: true
   seed: 42
-  # num_workers: 4
   num_workers: 0
   log_freq: [100, 200, 200]
   save_freq: 500
   val_freq: 500
   rgb_chn: [2, 1, 0]
   local_logging: true
+
   indicating_mask_reduce: "prob_or"
+
+  # 关键：把掩膜二值化 -> 云像素完全不参与 loss（非加权）
+  indicating_mask_binarize: true
+  indicating_mask_threshold: 0.5
 
 inference:
   padding_offset: 16
