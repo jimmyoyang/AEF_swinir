@@ -1,0 +1,323 @@
+[train.sh] CUDA_VISIBLE_DEVICES=0
+[train.sh] cuda_available= True device_count= 1 current= 0
+[train.sh] CPU split diagnostics: python scripts/diagnose_dataset_splits.py --cfg_path configs/ablation/ablation_4f_mask_prob_or_learnable_pos_no_cross.yaml
+[split-diff][INFO] cfg_path=configs/ablation/ablation_4f_mask_prob_or_learnable_pos_no_cross.yaml
+[split-diff][INFO] max_samples=2 phases=['train', 'val', 'test']
+[split-diff][INFO] phase=train build dataset
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 4696 tiles indexed
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=340, removed=20, removed_tiles=1, kept_tiles=16
+[Dataset INFO] Initialized for 16 tile locations.
+  - Tile IDs Preview: first=['100_11', '100_12', '100_15', '100_21', '100_23', '100_24', '100_27', '100_31'] last=100_48 total=16
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+  - Tile Cache: Active (/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/train)
+  - Hard Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=5a6bd0ac17)
+  - Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=4518a69e80)
+  - HR Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=58dcfdee8c)
+  - Processed Sample Cache: Enabled (LRU size=16)
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+[split-diff][INFO] phase=train len=16 sampled=2 lr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/LR hr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR
+[split-diff][SUMMARY] phase=train
+[split-diff] train.lr_sequence: shape=(20, 12, 64, 64) finite=1.0000 min=-1.0000 mean=0.0006 std=0.5931 max=1.0000 zero_ratio=0.0750
+[split-diff] train.gt: shape=(64, 192, 192) finite=1.0000 min=-1.0000 mean=0.0397 std=0.5632 max=1.0000 zero_ratio=0.0401
+[split-diff] train.mask: shape=(20,) finite=1.0000 min=0.0000 mean=0.9500 std=0.2179 max=1.0000 zero_ratio=0.0500
+[split-diff] train.mask_prob: shape=(20, 1, 64, 64) finite=1.0000 min=0.0000 mean=0.9421 std=0.2287 max=1.0000 zero_ratio=0.0013
+[split-diff] train.indicating_mask: shape=(20, 64, 64) finite=1.0000 min=0.0000 mean=0.9421 std=0.2287 max=1.0000 zero_ratio=0.0013
+[split-diff] train.timestamps: shape=(20,) finite=1.0000 min=1.0000 mean=173.0000 std=110.4898 max=353.0000 zero_ratio=0.0000
+[split-diff] train.lr_mean: n=2 min=-0.0088 mean=-0.0041 std=0.0047 median=-0.0041 max=0.0006
+[split-diff] train.lr_std: n=2 min=0.5590 mean=0.5761 std=0.0171 median=0.5761 max=0.5931
+[split-diff] train.gt_mean: n=2 min=-0.0043 mean=0.0177 std=0.0220 median=0.0177 max=0.0397
+[split-diff] train.gt_std: n=2 min=0.5632 mean=0.5686 std=0.0054 median=0.5686 max=0.5740
+[split-diff] train.mask_mean: n=4 min=0.8695 mean=0.9058 std=0.0363 median=0.9058 max=0.9421
+[split-diff] train.mask_valid_ratio: n=4 min=0.8683 mean=0.9060 std=0.0378 median=0.9060 max=0.9438
+[split-diff] train.temporal_valid_ratio: n=2 min=0.9500 mean=0.9500 std=0.0000 median=0.9500 max=0.9500
+[split-diff] train.timestamp_min: n=2 min=1.0000 mean=1.0000 std=0.0000 median=1.0000 max=1.0000
+[split-diff] train.timestamp_max: n=2 min=353.0000 mean=353.0000 std=0.0000 median=353.0000 max=353.0000
+[split-diff] train.paths_preview=['/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR/20180101_tile_100_11.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR/20180101_tile_100_48.tif']
+[split-diff][INFO] phase=val build dataset
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 2329 tiles indexed
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=160, removed=0, removed_tiles=0, kept_tiles=8
+[Dataset INFO] Initialized for 8 tile locations.
+  - Tile IDs Preview: first=['100_13', '100_16', '100_18', '100_19', '100_22', '100_25', '100_28', '100_29'] last=100_29 total=8
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+  - Tile Cache: Active (/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/val)
+  - Hard Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=5a6bd0ac17)
+  - Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=4518a69e80)
+  - HR Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=58dcfdee8c)
+  - Processed Sample Cache: Enabled (LRU size=8)
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+[split-diff][INFO] phase=val len=8 sampled=2 lr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/LR hr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR
+[split-diff][SUMMARY] phase=val
+[split-diff] val.lr_sequence: shape=(20, 12, 64, 64) finite=1.0000 min=-1.0000 mean=0.0318 std=0.5351 max=1.0000 zero_ratio=0.0708
+[split-diff] val.gt: shape=(64, 192, 192) finite=1.0000 min=-1.0000 mean=0.0411 std=0.5029 max=1.0000 zero_ratio=0.0338
+[split-diff] val.mask: shape=(20,) finite=1.0000 min=1.0000 mean=1.0000 std=0.0000 max=1.0000 zero_ratio=0.0000
+[split-diff] val.mask_prob: shape=(20, 1, 64, 64) finite=1.0000 min=0.0000 mean=0.9677 std=0.1661 max=1.0000 zero_ratio=0.0011
+[split-diff] val.indicating_mask: shape=(20, 64, 64) finite=1.0000 min=0.0000 mean=0.9677 std=0.1661 max=1.0000 zero_ratio=0.0011
+[split-diff] val.timestamps: shape=(20,) finite=1.0000 min=1.0000 mean=173.0000 std=110.4898 max=353.0000 zero_ratio=0.0000
+[split-diff] val.lr_mean: n=2 min=0.0318 mean=0.0385 std=0.0067 median=0.0385 max=0.0452
+[split-diff] val.lr_std: n=2 min=0.5351 mean=0.5488 std=0.0136 median=0.5488 max=0.5624
+[split-diff] val.gt_mean: n=2 min=-0.0132 mean=0.0140 std=0.0272 median=0.0140 max=0.0411
+[split-diff] val.gt_std: n=2 min=0.5029 mean=0.5491 std=0.0462 median=0.5491 max=0.5953
+[split-diff] val.mask_mean: n=4 min=0.8246 mean=0.8962 std=0.0715 median=0.8962 max=0.9677
+[split-diff] val.mask_valid_ratio: n=4 min=0.8243 mean=0.8966 std=0.0723 median=0.8966 max=0.9689
+[split-diff] val.temporal_valid_ratio: n=2 min=0.9500 mean=0.9750 std=0.0250 median=0.9750 max=1.0000
+[split-diff] val.timestamp_min: n=2 min=1.0000 mean=1.0000 std=0.0000 median=1.0000 max=1.0000
+[split-diff] val.timestamp_max: n=2 min=353.0000 mean=353.0000 std=0.0000 median=353.0000 max=353.0000
+[split-diff] val.paths_preview=['/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR/20180101_tile_100_13.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR/20180101_tile_100_29.tif']
+[split-diff][INFO] test dirs inferred from train root: lr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/LR hr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR
+[split-diff][INFO] phase=test build dataset
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 2352 tiles indexed
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=160, removed=0, removed_tiles=0, kept_tiles=8
+[Dataset INFO] Initialized for 8 tile locations.
+  - Tile IDs Preview: first=['100_14', '100_17', '100_26', '100_32', '100_33', '100_35', '100_36', '100_43'] last=100_43 total=8
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+[split-diff][INFO] phase=test len=8 sampled=2 lr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/LR hr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR
+[split-diff][SUMMARY] phase=test
+[split-diff] test.lr_sequence: shape=(20, 12, 64, 64) finite=1.0000 min=-1.0000 mean=0.0104 std=0.5486 max=1.0000 zero_ratio=0.0708
+[split-diff] test.gt: shape=(64, 192, 192) finite=1.0000 min=-1.0000 mean=0.0234 std=0.5555 max=1.0000 zero_ratio=0.0137
+[split-diff] test.mask: shape=(20,) finite=1.0000 min=0.0000 mean=0.9500 std=0.2179 max=1.0000 zero_ratio=0.0500
+[split-diff] test.mask_prob: shape=(20, 1, 64, 64) finite=1.0000 min=0.0000 mean=0.9479 std=0.2159 max=1.0000 zero_ratio=0.0010
+[split-diff] test.indicating_mask: shape=(20, 64, 64) finite=1.0000 min=0.0000 mean=0.9479 std=0.2159 max=1.0000 zero_ratio=0.0010
+[split-diff] test.timestamps: shape=(20,) finite=1.0000 min=1.0000 mean=173.0000 std=110.4898 max=353.0000 zero_ratio=0.0000
+[split-diff] test.lr_mean: n=2 min=0.0104 mean=0.0161 std=0.0057 median=0.0161 max=0.0219
+[split-diff] test.lr_std: n=2 min=0.5486 mean=0.5548 std=0.0062 median=0.5548 max=0.5610
+[split-diff] test.gt_mean: n=2 min=-0.0256 mean=-0.0011 std=0.0245 median=-0.0011 max=0.0234
+[split-diff] test.gt_std: n=2 min=0.5555 mean=0.5633 std=0.0077 median=0.5633 max=0.5710
+[split-diff] test.mask_mean: n=4 min=0.8315 mean=0.8897 std=0.0582 median=0.8897 max=0.9479
+[split-diff] test.mask_valid_ratio: n=4 min=0.8337 mean=0.8920 std=0.0583 median=0.8920 max=0.9503
+[split-diff] test.temporal_valid_ratio: n=2 min=0.9000 mean=0.9250 std=0.0250 median=0.9250 max=0.9500
+[split-diff] test.timestamp_min: n=2 min=1.0000 mean=1.0000 std=0.0000 median=1.0000 max=1.0000
+[split-diff] test.timestamp_max: n=2 min=353.0000 mean=353.0000 std=0.0000 median=353.0000 max=353.0000
+[split-diff] test.paths_preview=['/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR/20180101_tile_100_14.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR/20180101_tile_100_43.tif']
+[split-diff][COMPARE] train vs val
+[split-diff][WARN] lr_mean: train_mean=-0.0041 val_mean=0.0385 delta=0.0426 rel=1032.42%
+[split-diff][INFO] lr_std: train_mean=0.5761 val_mean=0.5488 delta=-0.0273 rel=-4.74%
+[split-diff][INFO] gt_mean: train_mean=0.0177 val_mean=0.0140 delta=-0.0037 rel=-21.16%
+[split-diff][INFO] gt_std: train_mean=0.5686 val_mean=0.5491 delta=-0.0195 rel=-3.44%
+[split-diff][INFO] mask_mean: train_mean=0.9058 val_mean=0.8962 delta=-0.0096 rel=-1.06%
+[split-diff][INFO] mask_valid_ratio: train_mean=0.9060 val_mean=0.8966 delta=-0.0094 rel=-1.04%
+[split-diff][INFO] temporal_valid_ratio: train_mean=0.9500 val_mean=0.9750 delta=0.0250 rel=2.63%
+[split-diff][COMPARE] train vs test
+[split-diff][WARN] lr_mean: train_mean=-0.0041 test_mean=0.0161 delta=0.0203 rel=491.05%
+[split-diff][INFO] lr_std: train_mean=0.5761 test_mean=0.5548 delta=-0.0213 rel=-3.69%
+[split-diff][INFO] gt_mean: train_mean=0.0177 test_mean=-0.0011 delta=-0.0188 rel=-106.00%
+[split-diff][INFO] gt_std: train_mean=0.5686 test_mean=0.5633 delta=-0.0054 rel=-0.94%
+[split-diff][INFO] mask_mean: train_mean=0.9058 test_mean=0.8897 delta=-0.0161 rel=-1.78%
+[split-diff][INFO] mask_valid_ratio: train_mean=0.9060 test_mean=0.8920 delta=-0.0141 rel=-1.55%
+[split-diff][INFO] temporal_valid_ratio: train_mean=0.9500 test_mean=0.9250 delta=-0.0250 rel=-2.63%
+[split-diff][COMPARE] val vs test
+[split-diff][WARN] lr_mean: val_mean=0.0385 test_mean=0.0161 delta=-0.0223 rel=-58.06%
+[split-diff][INFO] lr_std: val_mean=0.5488 test_mean=0.5548 delta=0.0060 rel=1.10%
+[split-diff][INFO] gt_mean: val_mean=0.0140 test_mean=-0.0011 delta=-0.0150 rel=-107.61%
+[split-diff][INFO] gt_std: val_mean=0.5491 test_mean=0.5633 delta=0.0142 rel=2.58%
+[split-diff][INFO] mask_mean: val_mean=0.8962 test_mean=0.8897 delta=-0.0065 rel=-0.72%
+[split-diff][INFO] mask_valid_ratio: val_mean=0.8966 test_mean=0.8920 delta=-0.0047 rel=-0.52%
+[split-diff][INFO] temporal_valid_ratio: val_mean=0.9750 test_mean=0.9250 delta=-0.0500 rel=-5.13%
+[split-diff][INFO] done
+[train.sh] Run: python main.py --cfg_path configs/ablation/ablation_4f_mask_prob_or_learnable_pos_no_cross.yaml --mode train
+
+================================================================================
+🚀 Starting Training Mode...
+================================================================================
+[Main] Model type detected: default
+[Main] Using trainer: trainer_mask_ablation.TrainerAlphaSRMaskAblation
+model:
+  target: models.network_swinir.SwinIR
+  params:
+    temporal_fusion_mode: mean
+    img_size: 64
+    upscale: 3
+    upsampler: pixelshuffle
+    window_size: 8
+    embed_dim: 180
+    depths:
+    - 6
+    - 6
+    - 6
+    - 6
+    num_heads:
+    - 6
+    - 6
+    - 6
+    - 6
+    mlp_ratio: 4
+    resi_connection: 1conv
+    out_channels: 64
+    fusion_module: lightweight_channel_attention
+    use_cross_attention: false
+    cross_num_heads: 6
+    cross_downsample_rate: 1
+    cross_concat_value: false
+    use_pos_emb: true
+    use_learnable_pos_emb: true
+    pos_emb_dim: 180
+    temporal_attention_params:
+      num_heads: 6
+data:
+  train:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/LR
+      hr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR
+      sample_num: 16
+      enable_hr_zero_filter: true
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: ./patch_stats.log
+      cache_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/train
+      mask_cache_dir: ./tmp/mask_cache/ablation_4f/train
+      hard_mask_cache_dir: ./tmp/mask_cache/ablation_4f/train
+      hr_cache_dir: ./tmp/mask_cache/ablation_4f/train
+      valid_mask_band_count: 9
+      use_tile_cache: true
+      sample_cache_mem_size: 16
+  val:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/LR
+      hr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR
+      sample_num: 8
+      enable_hr_zero_filter: true
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: ./patch_stats.log
+      cache_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/val
+      mask_cache_dir: ./tmp/mask_cache/ablation_4f/val
+      hard_mask_cache_dir: ./tmp/mask_cache/ablation_4f/val
+      hr_cache_dir: ./tmp/mask_cache/ablation_4f/val
+      valid_mask_band_count: 9
+      use_tile_cache: true
+      sample_cache_mem_size: 8
+  test:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: ./data/processed_data/test/LR
+      hr_dir: ./data/processed_data/test/HR
+      enable_hr_zero_filter: true
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: ./patch_stats.log
+      sample_num: 8
+trainer:
+  target: trainer_mask_ablation.TrainerAlphaSRMaskAblation
+loss:
+  target: trainer.MixedLoss
+  params:
+    ssim_weight: 1.0
+    l2_weight: 1.0
+    data_range: 2.0
+features:
+  time_band:
+    enabled: true
+  mask_band:
+    enabled: true
+    use_advanced_processor: true
+    processor:
+      mask_type: soft
+      use_spatial_smoothing: true
+      smoothing_sigma: 1.0
+      soft_mask_sigma: 2.0
+train:
+  save_dir: ./training_logs/experiments/ablation_4f_mask_prob_or_learnable_pos_no_cross
+  batch:
+  - 16
+  - 8
+  iterations: 20000
+  lr: 0.0001
+  lr_schedule: ReduceLROnPlateau
+  lr_schedule_params:
+    patience: 3
+    factor: 0.5
+    threshold: 0.02
+    threshold_mode: abs
+    min_lr: 1.0e-06
+  lr_min: 1.0e-06
+  weight_decay: 0.0
+  global_seeding: true
+  seed: 42
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+  log_freq:
+  - 100
+  - 200
+  - 200
+  save_freq: 500
+  val_freq: 500
+  rgb_chn:
+  - 2
+  - 1
+  - 0
+  local_logging: true
+  indicating_mask_reduce: prob_or
+  debug_batch_log_freq: 500
+  debug_batch_log_max: 20
+  val_debug_max_samples: 8
+inference:
+  padding_offset: 16
+resume: null
+
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 4696 tiles indexed
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=340, removed=20, removed_tiles=1, kept_tiles=16
+[Dataset INFO] Initialized for 16 tile locations.
+  - Tile IDs Preview: first=['100_11', '100_12', '100_15', '100_21', '100_23', '100_24', '100_27', '100_31'] last=100_48 total=16
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+  - Tile Cache: Active (/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/train)
+  - Hard Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=5a6bd0ac17)
+  - Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=4518a69e80)
+  - HR Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=58dcfdee8c)
+  - Processed Sample Cache: Enabled (LRU size=16)
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 2329 tiles indexed
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=160, removed=0, removed_tiles=0, kept_tiles=8
+[Dataset INFO] Initialized for 8 tile locations.
+  - Tile IDs Preview: first=['100_13', '100_16', '100_18', '100_19', '100_22', '100_25', '100_28', '100_29'] last=100_29 total=8
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+  - Tile Cache: Active (/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/val)
+  - Hard Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=5a6bd0ac17)
+  - Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=4518a69e80)
+  - HR Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=58dcfdee8c)
+  - Processed Sample Cache: Enabled (LRU size=8)
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+📊 Dataset [train] size: 16
+📊 Dataset [val] size: 8
+✅ Dynamically detected in_chans: 12
+📝 Instantiating loss function from config
+🔥 Initialized MixedLoss | L2_weight=1.0, SSIM_weight=1.0, DataRange=2.0
+🎨 Generating baseline visualization...
+✅ Baseline visualization saved to: training_logs/experiments/ablation_4f_mask_prob_or_learnable_pos_no_cross/2026-05-12_02-51-19/images/val
+🔎 train mask debug iter=1 reduce=prob_or mask_mean=1.0000 mask_gt_0.5=1.0000
+🔎 train debug iter=1 | lr_sequence: shape=(16, 20, 12, 64, 64) min=-1.0000 mean=0.0310 max=1.0000 | gt: shape=(16, 64, 192, 192) min=-1.0000 mean=-0.0150 max=1.0000 | mask: shape=(16, 20) min=0.0000 mean=0.9500 max=1.0000 | mask_prob: shape=(16, 20, 1, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | indicating_mask: shape=(16, 20, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | timestamps: shape=(16, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(16, 64, 192, 192) min=-1.1083 mean=0.0012 max=1.0727 | loss=1.351624
+🔎 train mask debug iter=2 reduce=prob_or mask_mean=1.0000 mask_gt_0.5=1.0000
+🔎 train debug iter=2 | lr_sequence: shape=(16, 20, 12, 64, 64) min=-1.0000 mean=0.0310 max=1.0000 | gt: shape=(16, 64, 192, 192) min=-1.0000 mean=-0.0150 max=1.0000 | mask: shape=(16, 20) min=0.0000 mean=0.9500 max=1.0000 | mask_prob: shape=(16, 20, 1, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | indicating_mask: shape=(16, 20, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | timestamps: shape=(16, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(16, 64, 192, 192) min=-1.0400 mean=0.0046 max=0.9716 | loss=1.306701
+🔎 train mask debug iter=3 reduce=prob_or mask_mean=1.0000 mask_gt_0.5=1.0000
+🔎 train debug iter=3 | lr_sequence: shape=(16, 20, 12, 64, 64) min=-1.0000 mean=0.0310 max=1.0000 | gt: shape=(16, 64, 192, 192) min=-1.0000 mean=-0.0150 max=1.0000 | mask: shape=(16, 20) min=0.0000 mean=0.9500 max=1.0000 | mask_prob: shape=(16, 20, 1, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | indicating_mask: shape=(16, 20, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | timestamps: shape=(16, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(16, 64, 192, 192) min=-1.0576 mean=0.0076 max=0.9760 | loss=1.269705
+🔎 train mask debug iter=4 reduce=prob_or mask_mean=1.0000 mask_gt_0.5=1.0000
+🔎 train debug iter=4 | lr_sequence: shape=(16, 20, 12, 64, 64) min=-1.0000 mean=0.0310 max=1.0000 | gt: shape=(16, 64, 192, 192) min=-1.0000 mean=-0.0150 max=1.0000 | mask: shape=(16, 20) min=0.0000 mean=0.9500 max=1.0000 | mask_prob: shape=(16, 20, 1, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | indicating_mask: shape=(16, 20, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | timestamps: shape=(16, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(16, 64, 192, 192) min=-1.0681 mean=0.0090 max=1.0859 | loss=1.239330
+🔎 train mask debug iter=5 reduce=prob_or mask_mean=1.0000 mask_gt_0.5=1.0000
+🔎 train debug iter=5 | lr_sequence: shape=(16, 20, 12, 64, 64) min=-1.0000 mean=0.0310 max=1.0000 | gt: shape=(16, 64, 192, 192) min=-1.0000 mean=-0.0150 max=1.0000 | mask: shape=(16, 20) min=0.0000 mean=0.9500 max=1.0000 | mask_prob: shape=(16, 20, 1, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | indicating_mask: shape=(16, 20, 64, 64) min=0.0000 mean=0.9030 max=1.0000 | timestamps: shape=(16, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(16, 64, 192, 192) min=-1.1064 mean=0.0070 max=1.1613 | loss=1.216662
+📈 Iter 100 | Train Loss: 0.881002 | LR: 1.000e-04
+📈 Iter 200 | Train Loss: 0.726510 | LR: 1.000e-04

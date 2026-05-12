@@ -76,17 +76,24 @@ class TrainerBase:
     def init_dist_and_seed(self):
         """初始化分布式训练环境和随机种子"""
         num_gpus = torch.cuda.device_count()
-        if num_gpus > 1:
+        world_size = int(os.environ.get('WORLD_SIZE', '1'))
+        self.local_rank = 0
+        if world_size > 1:
             # 分布式训练初始化
-            rank = int(os.environ.get('LOCAL_RANK', 0))
-            torch.cuda.set_device(rank % num_gpus)
+            local_rank = int(os.environ.get('LOCAL_RANK', 0))
+            self.local_rank = local_rank % max(num_gpus, 1)
+            if torch.cuda.is_available():
+                torch.cuda.set_device(self.local_rank)
             dist.init_process_group(
                 timeout=datetime.timedelta(seconds=3600),
                 backend='nccl',
                 init_method='env://'
             )
-        self.num_gpus = num_gpus
-        self.rank = int(os.environ.get('LOCAL_RANK', 0)) if num_gpus > 1 else 0
+            self.num_gpus = world_size
+            self.rank = int(os.environ.get('RANK', local_rank))
+        else:
+            self.num_gpus = 1 if torch.cuda.is_available() else 0
+            self.rank = 0
 
         # 设置随机种子（分布式下每个进程种子偏移）
         seed = self.configs.train.get('seed', 42)
@@ -158,23 +165,43 @@ class TrainerBase:
         # 批次大小（多GPU时均分训练批次）
         train_batch_size = self.configs.train.batch[0] // self.num_gpus if self.num_gpus > 0 else self.configs.train.batch[0]
         val_batch_size = self.configs.train.batch[1] if len(self.configs.train.batch) > 1 else 1
+        train_num_workers = int(self.configs.train.get('num_workers', 0))
+        val_num_workers = int(self.configs.train.get('val_num_workers', 0))
+        pin_memory = bool(self.configs.train.get('pin_memory', False))
+        persistent_workers = bool(self.configs.train.get('persistent_workers', train_num_workers > 0))
+        prefetch_factor = int(self.configs.train.get('prefetch_factor', 2))
+
+        train_loader_kwargs = dict(
+            batch_size=train_batch_size,
+            shuffle=(sampler is None),
+            drop_last=True,
+            num_workers=train_num_workers,
+            sampler=sampler,
+            pin_memory=pin_memory,
+            persistent_workers=(persistent_workers and train_num_workers > 0),
+        )
+        if train_num_workers > 0:
+            train_loader_kwargs['prefetch_factor'] = prefetch_factor
 
         # 构建数据加载器
         self.dataloaders = {
             'train': _wrap(udata.DataLoader(
                 datasets['train'],
-                batch_size=train_batch_size,
-                shuffle=(sampler is None),
-                drop_last=True,
-                num_workers=self.configs.train.num_workers,
-                sampler=sampler
+                **train_loader_kwargs
             ))
         }
         if hasattr(self.configs.data, 'val') and self.rank == 0:
+            val_loader_kwargs = dict(
+                batch_size=val_batch_size,
+                num_workers=val_num_workers,
+                pin_memory=pin_memory,
+                persistent_workers=(persistent_workers and val_num_workers > 0),
+            )
+            if val_num_workers > 0:
+                val_loader_kwargs['prefetch_factor'] = prefetch_factor
             self.dataloaders['val'] = udata.DataLoader(
                 datasets['val'],
-                batch_size=val_batch_size,
-                num_workers=0  # 验证集用0个worker避免数据错乱
+                **val_loader_kwargs
             )
 
         self.datasets = datasets
@@ -221,7 +248,7 @@ class TrainerBase:
         if self.num_gpus > 1:
             self.model = DDP(
                 self.model,
-                device_ids=[self.rank],
+                device_ids=[self.local_rank],
                 find_unused_parameters=True
             )
 
@@ -236,8 +263,15 @@ class TrainerBase:
     def prepare_data(self, data):
         """将数据移到GPU（支持字典/张量类型）"""
         if isinstance(data, dict):
-            return {k: v.cuda(non_blocking=True) for k, v in data.items() if isinstance(v, torch.Tensor)}
+            return {
+                k: (v.cuda(non_blocking=True) if isinstance(v, torch.Tensor) else v)
+                for k, v in data.items()
+            }
         return data.cuda(non_blocking=True)
+
+    def _model_for_rank0_eval(self):
+        """Rank-0-only validation should bypass DDP wrapper to avoid DDP forward collectives."""
+        return self.model.module if isinstance(self.model, DDP) else self.model
 
     def save_ckpt(self, best=False):
         """保存检查点（仅主进程）"""
@@ -295,7 +329,7 @@ class TrainerBase:
             # 兼容 PyTorch 2.6: 默认 weights_only=True 可能导致旧 checkpoint 反序列化失败。
             # 对可信本地实验权重，失败后自动回退到 weights_only=False。
             try:
-                ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.rank}")
+                ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.local_rank}")
             except Exception as e:
                 err = str(e)
                 if "Weights only load failed" in err:
@@ -304,10 +338,10 @@ class TrainerBase:
                             "⚠️ torch.load safe mode failed; retrying with weights_only=False for trusted local checkpoint."
                         )
                     try:
-                        ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.rank}", weights_only=False)
+                        ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.local_rank}", weights_only=False)
                     except TypeError:
                         # 兼容旧版 PyTorch（无 weights_only 参数）
-                        ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.rank}")
+                        ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.local_rank}")
                 else:
                     raise
             
@@ -349,6 +383,8 @@ class TrainerBase:
         # 训练前生成基线可视化（仅主进程）
         if self.rank == 0 and self.iters_start == 0:
             self.baseline_visualize()
+        if self.num_gpus > 1:
+            dist.barrier()
         
         self.model.train()
         # 迭代训练
@@ -365,14 +401,28 @@ class TrainerBase:
             self.training_step(data)
             
             # 验证（按验证频率）
-            if 'val' in self.dataloaders and (self.current_iters % self.configs.train.val_freq) == 0:
-                cur_metric = self.validation()
-                self.adjust_lr(cur_metric)  # 调整学习率
-                # 保存最佳模型
-                if self.rank == 0 and cur_metric > self.best_metric:
-                    self.best_metric = cur_metric
-                    self.logger.info(f"🏆 New best metric: {self.best_metric:.4f} | Saving best model...")
-                    self.save_ckpt(best=True)
+            if (self.current_iters % self.configs.train.val_freq) == 0:
+                if self.num_gpus > 1:
+                    dist.barrier()
+                cur_metric = None
+                if 'val' in self.dataloaders:
+                    cur_metric = self.validation()
+                if self.num_gpus > 1:
+                    metric_tensor = torch.tensor(
+                        [float(cur_metric) if cur_metric is not None else float('nan')],
+                        device=torch.device('cuda', self.local_rank),
+                    )
+                    dist.broadcast(metric_tensor, src=0)
+                    cur_metric = float(metric_tensor.item())
+                if cur_metric is not None and math.isfinite(cur_metric):
+                    self.adjust_lr(cur_metric)  # 调整学习率
+                    # 保存最佳模型
+                    if self.rank == 0 and cur_metric > self.best_metric:
+                        self.best_metric = cur_metric
+                        self.logger.info(f"🏆 New best metric: {self.best_metric:.4f} | Saving best model...")
+                        self.save_ckpt(best=True)
+                if self.num_gpus > 1:
+                    dist.barrier()
             
             # 保存普通检查点（按保存频率）
             if (self.current_iters % self.configs.train.save_freq) == 0:
@@ -389,6 +439,11 @@ class TrainerBase:
         img_clamped = img_tensor.clamp(-1, 1)
         img_01 = (img_clamped + 1) / 2.0
         return img_01.cpu().numpy()
+
+    @staticmethod
+    def norm_for_metric_tensor(img_tensor):
+        """将[-1,1]裁剪并映射到[0,1]，保留在当前设备上用于快速指标。"""
+        return (img_tensor.clamp(-1, 1) + 1.0) * 0.5
 
     # 以下为需要子类实现/重写的方法
     def training_step(self, data):
@@ -453,7 +508,141 @@ class TrainerAlphaSR(TrainerBase):
             self.log_data['train_loss']['values'].append(loss.item())
             # 每100迭代打印一次损失
             if self.current_iters % 100 == 0:
-                self.logger.info(f"📈 Iter {self.current_iters} | Train Loss: {loss.item():.6f}")
+                lr_val = float(self.optimizer.param_groups[0]['lr'])
+                self.logger.info(f"📈 Iter {self.current_iters} | Train Loss: {loss.item():.6f} | LR: {lr_val:.3e}")
+
+    def _log_batch_debug(self, data, predictions=None, loss=None, phase='train'):
+        """Optional compact tensor statistics for diagnosing train/val drift."""
+        if self.rank != 0:
+            return
+        interval = int(self.configs.train.get('debug_batch_log_freq', 0) or 0)
+        max_logs = int(self.configs.train.get('debug_batch_log_max', 20) or 0)
+        if interval <= 0:
+            return
+        counter_name = f'_debug_{phase}_batch_logs'
+        emitted = int(getattr(self, counter_name, 0))
+        if max_logs > 0 and emitted >= max_logs:
+            return
+        if self.current_iters > 5 and self.current_iters % interval != 0:
+            return
+
+        parts = [f"🔎 {phase} debug iter={self.current_iters}"]
+        for key in ('lr_sequence', 'gt', 'mask', 'mask_prob', 'indicating_mask', 'timestamps'):
+            tensor = data.get(key) if isinstance(data, dict) else None
+            if not torch.is_tensor(tensor):
+                continue
+            tf = tensor.detach().float()
+            finite = torch.isfinite(tf)
+            if finite.any():
+                vals = tf[finite]
+                parts.append(
+                    f"{key}: shape={tuple(tensor.shape)} min={vals.min().item():.4f} "
+                    f"mean={vals.mean().item():.4f} max={vals.max().item():.4f}"
+                )
+            else:
+                parts.append(f"{key}: shape={tuple(tensor.shape)} all_nonfinite")
+        if predictions is not None and torch.is_tensor(predictions):
+            pf = predictions.detach().float()
+            parts.append(
+                f"pred: shape={tuple(predictions.shape)} min={pf.min().item():.4f} "
+                f"mean={pf.mean().item():.4f} max={pf.max().item():.4f}"
+            )
+        if loss is not None and torch.is_tensor(loss):
+            parts.append(f"loss={float(loss.detach().item()):.6f}")
+        if isinstance(data, dict) and data.get('path') is not None:
+            paths = data.get('path')
+            preview = [str(p) for p in paths[:3]] if isinstance(paths, (list, tuple)) else [str(paths)]
+            parts.append(f"paths={preview}")
+        self.logger.info(" | ".join(parts))
+        setattr(self, counter_name, emitted + 1)
+
+    def _reduce_temporal_mask(self, mask_bt_hw):
+        """将 (B,T,H,W) mask 聚合到 (B,1,H,W)，用于训练/验证中的空间 mask。"""
+        strategy = self.configs.train.get('indicating_mask_reduce', 'max')
+        mask_bt_hw = mask_bt_hw.clamp(0.0, 1.0)
+
+        if bool(self.configs.train.get('indicating_mask_binarize', False)):
+            threshold = float(self.configs.train.get('indicating_mask_threshold', 0.5))
+            mask_bt_hw = (mask_bt_hw >= threshold).float()
+
+        if mask_bt_hw.shape[1] == 1:
+            return mask_bt_hw
+        if strategy == 'mean':
+            return mask_bt_hw.mean(dim=1, keepdim=True)
+        if strategy == 'max':
+            return mask_bt_hw.max(dim=1, keepdim=True).values
+        if strategy == 'prob_or':
+            return 1.0 - torch.prod(1.0 - mask_bt_hw, dim=1, keepdim=True)
+
+        raise ValueError(f"Unknown indicating_mask_reduce strategy: {strategy}")
+
+    def _normalize_indicating_mask(self, ind_mask, batch_size):
+        """将 indicating_mask 统一成 (B,T,H,W) 或 (B,1,H,W)。"""
+        if ind_mask is None:
+            return None
+        ind_mask = ind_mask.float()
+        if ind_mask.ndim == 5:
+            if ind_mask.shape[1] == 1:
+                ind_mask = ind_mask.squeeze(1)
+            elif ind_mask.shape[2] == 1:
+                ind_mask = ind_mask.squeeze(2)
+            else:
+                raise ValueError(f"Unsupported indicating_mask shape: {tuple(ind_mask.shape)}")
+        elif ind_mask.ndim == 3:
+            if ind_mask.shape[0] == batch_size:
+                ind_mask = ind_mask.unsqueeze(1)
+            else:
+                ind_mask = ind_mask.unsqueeze(0)
+        elif ind_mask.ndim != 4:
+            raise ValueError(f"Unexpected indicating_mask shape: {tuple(ind_mask.shape)}")
+
+        if ind_mask.shape[0] != batch_size:
+            if ind_mask.shape[0] == 1:
+                ind_mask = ind_mask.expand(batch_size, -1, -1, -1)
+            else:
+                raise ValueError(
+                    f"Batch mismatch between indicating_mask ({ind_mask.shape[0]}) "
+                    f"and validation batch ({batch_size})"
+                )
+        return ind_mask
+
+    def _compute_fast_validation_metrics(self, gt_01, pred_01, spatial_masks=None):
+        """GPU 快路径：逐样本、逐波段计算 PSNR，并可选计算 Masked-PSNR。"""
+        diff_sq = (gt_01 - pred_01).pow(2)
+        mse_bc = diff_sq.flatten(2).mean(dim=2).clamp_min(1e-12)
+        band_psnr = 10.0 * torch.log10(1.0 / mse_bc)
+        sample_psnr = band_psnr.mean(dim=1)
+
+        metrics = {
+            'band_psnr': band_psnr.detach().cpu().numpy(),
+            'sample_psnr': sample_psnr.detach().cpu().numpy(),
+        }
+
+        if spatial_masks is not None:
+            if spatial_masks.shape[-2:] != pred_01.shape[-2:]:
+                spatial_masks = F.interpolate(
+                    spatial_masks,
+                    size=pred_01.shape[-2:],
+                    mode='bilinear',
+                    align_corners=False,
+                )
+            valid = (spatial_masks > 0.5).float()
+            valid_bc = valid.expand_as(diff_sq)
+            valid_count_bc = valid_bc.flatten(2).sum(dim=2)
+            masked_mse_sum_bc = (diff_sq * valid_bc).flatten(2).sum(dim=2)
+            has_valid = valid_count_bc > 0
+            masked_mse_bc = torch.where(
+                has_valid,
+                masked_mse_sum_bc / valid_count_bc.clamp_min(1.0),
+                torch.ones_like(masked_mse_sum_bc),
+            ).clamp_min(1e-12)
+            masked_band_psnr = 10.0 * torch.log10(1.0 / masked_mse_bc)
+            masked_sample_valid = has_valid.any(dim=1)
+            if masked_sample_valid.any():
+                masked_sample_psnr = masked_band_psnr.mean(dim=1)[masked_sample_valid]
+                metrics['masked_sample_psnr'] = masked_sample_psnr.detach().cpu().numpy()
+
+        return metrics
 
     def training_step(self, data):
         """单步训练逻辑"""
@@ -485,7 +674,10 @@ class TrainerAlphaSR(TrainerBase):
                 else:
                     raise ValueError(f"Unsupported indicating_mask shape: {tuple(ind_mask.shape)}")
             elif ind_mask.ndim == 3:
-                ind_mask = ind_mask.unsqueeze(0)
+                if ind_mask.shape[0] == predictions.shape[0]:
+                    ind_mask = ind_mask.unsqueeze(1)
+                else:
+                    ind_mask = ind_mask.unsqueeze(0)
             elif ind_mask.ndim != 4:
                 raise ValueError(f"Unexpected indicating_mask ndim={ind_mask.ndim}, shape={tuple(ind_mask.shape)}")
 
@@ -497,8 +689,7 @@ class TrainerAlphaSR(TrainerBase):
                         f"Batch mismatch between indicating_mask ({ind_mask.shape[0]}) and predictions ({predictions.shape[0]})"
                     )
 
-            # 时序聚合：任一时相有效则该像素有效 -> (B,1,H,W)
-            spatial_mask = ind_mask.max(dim=1, keepdim=True)[0].clamp(0, 1)
+            spatial_mask = self._reduce_temporal_mask(ind_mask)
             # 对齐到 SR 尺度
             if spatial_mask.shape[-2:] != predictions.shape[-2:]:
                 spatial_mask = F.interpolate(
@@ -514,6 +705,8 @@ class TrainerAlphaSR(TrainerBase):
             loss = loss * (float(predictions.numel()) / valid_pixels)
         else:
             loss = self.criterion(predictions, data['gt'])
+
+        self._log_batch_debug(data, predictions=predictions, loss=loss, phase='train')
         
         # 反向传播+优化
         self.optimizer.zero_grad()
@@ -529,60 +722,104 @@ class TrainerAlphaSR(TrainerBase):
         if self.rank == 0:
             self.model.eval()
             all_metrics = {'psnr': [], 'ssim': [], 'ergas': [], 'sam': [], 'masked_psnr': []}
-            pbar = tqdm(self.dataloaders[phase], desc=f"📌 Val Iter {getattr(self, 'current_iters', 0)}")
+            per_band_psnr_values = []
+            per_sample_psnr_values = []
+            val_debug_max = int(self.configs.train.get('val_debug_max_samples', 8) or 0)
+            compute_expensive_metrics = bool(self.configs.train.get('val_compute_expensive_metrics', False))
+            log_timing = bool(self.configs.train.get('val_timing_log', True))
+            timing = {'data_wait': 0.0, 'to_device': 0.0, 'forward': 0.0, 'metrics': 0.0, 'visualize': 0.0}
+            val_loader = self.dataloaders[phase]
+            val_iter = iter(val_loader)
+            pbar = tqdm(range(len(val_loader)), desc=f"📌 Val Iter {getattr(self, 'current_iters', 0)}")
             
-            for ii, data in enumerate(pbar):
+            for ii in pbar:
+                t0 = time.perf_counter()
+                data = next(val_iter)
+                timing['data_wait'] += time.perf_counter() - t0
+
+                t0 = time.perf_counter()
                 data = self.prepare_data(data)
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                timing['to_device'] += time.perf_counter() - t0
                 
                 # 模型推理
-                predictions = self.model(data)
+                eval_model = self._model_for_rank0_eval()
+                t0 = time.perf_counter()
+                predictions = eval_model(data)
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                timing['forward'] += time.perf_counter() - t0
+                self._log_batch_debug(data, predictions=predictions, phase=phase)
                 
+                t0 = time.perf_counter()
                 # 归一化到[0,1]用于指标计算
-                gt_01 = self.norm_for_vis(data['gt'])
-                pred_01 = self.norm_for_vis(predictions)
-                
-                # 转换为(H,W,C)格式（适配sewar库）
-                gt_numpy = gt_01.transpose(0, 2, 3, 1)[0]
-                pred_numpy = pred_01.transpose(0, 2, 3, 1)[0]
-                
-                # 计算多波段平均指标
-                psnr_val = np.mean([psnr(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0) for b in range(gt_numpy.shape[-1])])
-                ssim_val = np.mean([ssim(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0)[0] for b in range(gt_numpy.shape[-1])])
-                
-                all_metrics['psnr'].append(psnr_val)
-                all_metrics['ssim'].append(ssim_val)
-                all_metrics['ergas'].append(ergas(gt_numpy, pred_numpy))
-                all_metrics['sam'].append(sam(gt_numpy, pred_numpy))
+                gt_01_tensor = self.norm_for_metric_tensor(data['gt'])
+                pred_01_tensor = self.norm_for_metric_tensor(predictions)
 
-                # 可选：在有效（无云）像素上计算 Masked-PSNR
-                if data.get('indicating_mask') is not None:
-                    ind_mask = data['indicating_mask'].float()
-                    if ind_mask.ndim == 3:
-                        ind_mask = ind_mask.unsqueeze(0)  # (1,T,H,W)
-                    # 时序聚合并对齐到预测分辨率（避免 64x64 掩膜索引 192x192 图像）
-                    spatial_mask = ind_mask[0].max(dim=0, keepdim=True)[0].unsqueeze(0)  # (1,1,H,W)
-                    pred_h, pred_w = pred_numpy.shape[0], pred_numpy.shape[1]
-                    if spatial_mask.shape[-2:] != (pred_h, pred_w):
-                        spatial_mask = F.interpolate(
-                            spatial_mask,
-                            size=(pred_h, pred_w),
-                            mode='bilinear',
-                            align_corners=False,
+                ind_mask = data.get('indicating_mask', None)
+                if ind_mask is not None:
+                    ind_mask = self._normalize_indicating_mask(ind_mask, batch_size=gt_01_tensor.shape[0])
+                    spatial_masks = self._reduce_temporal_mask(ind_mask)
+                else:
+                    spatial_masks = None
+
+                fast_metrics = self._compute_fast_validation_metrics(
+                    gt_01_tensor,
+                    pred_01_tensor,
+                    spatial_masks=spatial_masks,
+                )
+                batch_band_psnr = fast_metrics['band_psnr']
+                batch_sample_psnr = fast_metrics['sample_psnr']
+                sample_offset = len(per_sample_psnr_values)
+                per_band_psnr_values.extend(batch_band_psnr.tolist())
+                per_sample_psnr_values.extend(float(v) for v in batch_sample_psnr)
+                all_metrics['psnr'].extend(float(v) for v in batch_sample_psnr)
+                if 'masked_sample_psnr' in fast_metrics:
+                    all_metrics['masked_psnr'].extend(float(v) for v in fast_metrics['masked_sample_psnr'])
+
+                if compute_expensive_metrics:
+                    gt_01 = gt_01_tensor.cpu().numpy()
+                    pred_01 = pred_01_tensor.cpu().numpy()
+                    gt_numpy_batch = gt_01.transpose(0, 2, 3, 1)
+                    pred_numpy_batch = pred_01.transpose(0, 2, 3, 1)
+
+                    for batch_idx in range(gt_numpy_batch.shape[0]):
+                        gt_numpy = gt_numpy_batch[batch_idx]
+                        pred_numpy = pred_numpy_batch[batch_idx]
+
+                        # CPU 参考指标较慢；训练中调度和 best checkpoint 只依赖 PSNR。
+                        ssim_val = np.mean([ssim(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0)[0] for b in range(gt_numpy.shape[-1])])
+                        all_metrics['ssim'].append(ssim_val)
+                        all_metrics['ergas'].append(ergas(gt_numpy, pred_numpy))
+                        all_metrics['sam'].append(sam(gt_numpy, pred_numpy))
+
+                for batch_idx, psnr_val in enumerate(batch_sample_psnr):
+                    global_sample_idx = sample_offset + batch_idx
+                    if val_debug_max > 0 and global_sample_idx < val_debug_max:
+                        path_info = None
+                        if isinstance(data, dict) and data.get('path') is not None:
+                            paths = data.get('path')
+                            if isinstance(paths, (list, tuple)) and batch_idx < len(paths):
+                                path_info = paths[batch_idx]
+                            else:
+                                path_info = paths
+                        self.logger.info(
+                            f"🔎 Val sample debug | iter={self.current_iters} idx={global_sample_idx} "
+                            f"psnr={float(psnr_val):.4f} "
+                            f"gt_mean={float(gt_01_tensor[batch_idx].mean().item()):.4f} "
+                            f"pred_mean={float(pred_01_tensor[batch_idx].mean().item()):.4f} "
+                            f"path={path_info}"
                         )
-                    spatial_mask_np = spatial_mask.squeeze(0).squeeze(0).cpu().numpy() > 0.5
-                    if spatial_mask_np.sum() > 0:
-                        per_band_mpsnr = []
-                        for b in range(gt_numpy.shape[-1]):
-                            diff_sq = (gt_numpy[:, :, b][spatial_mask_np] - pred_numpy[:, :, b][spatial_mask_np]) ** 2
-                            mse = diff_sq.mean()
-                            if mse > 0:
-                                per_band_mpsnr.append(20.0 * np.log10(1.0 / np.sqrt(mse)))
-                        if per_band_mpsnr:
-                            all_metrics['masked_psnr'].append(float(np.mean(per_band_mpsnr)))
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                timing['metrics'] += time.perf_counter() - t0
 
                 # 可视化第一个样本
                 if ii == 0 and self.configs.train.get('local_logging', False):
+                    t0 = time.perf_counter()
                     self.visualize_validation_sample(data, predictions, ii)
+                    timing['visualize'] += time.perf_counter() - t0
             
             # 计算平均指标（排除空的 masked_psnr 列表）
             avg_metrics = {k: float(np.mean(v)) for k, v in all_metrics.items() if v}
@@ -591,20 +828,49 @@ class TrainerAlphaSR(TrainerBase):
                 f" | Masked-PSNR: {avg_metrics['masked_psnr']:.4f}"
                 if 'masked_psnr' in avg_metrics else ""
             )
+            slow_metrics_str = (
+                f" | SSIM: {avg_metrics['ssim']:.4f} | "
+                f"ERGAS: {avg_metrics['ergas']:.4f} | SAM: {avg_metrics['sam']:.4f}"
+                if compute_expensive_metrics
+                else " | SSIM/ERGAS/SAM: skipped"
+            )
             self.logger.info(
                 f"📊 Validation Metrics | "
-                f"PSNR: {avg_metrics['psnr']:.4f} | "
-                f"SSIM: {avg_metrics['ssim']:.4f} | "
-                f"ERGAS: {avg_metrics['ergas']:.4f} | "
-                f"SAM: {avg_metrics['sam']:.4f}"
+                f"PSNR: {avg_metrics['psnr']:.4f}"
+                + slow_metrics_str
                 + masked_psnr_str
             )
+            if per_sample_psnr_values:
+                sample_arr = np.asarray(per_sample_psnr_values, dtype=np.float32)
+                self.logger.info(
+                    f"🔎 Validation PSNR spread | min={sample_arr.min():.4f} "
+                    f"median={np.median(sample_arr):.4f} max={sample_arr.max():.4f} n={sample_arr.size}"
+                )
+            if per_band_psnr_values:
+                band_arr = np.asarray(per_band_psnr_values, dtype=np.float32)
+                band_mean = band_arr.mean(axis=0)
+                band_msg = ", ".join(f"b{i}:{v:.2f}" for i, v in enumerate(band_mean[:16]))
+                if band_mean.size > 16:
+                    band_msg += ", ..."
+                self.logger.info(f"🔎 Validation per-band PSNR mean | {band_msg}")
+            if log_timing:
+                total_timing = sum(timing.values())
+                self.logger.info(
+                    "⏱️ Validation timing | "
+                    f"data_wait={timing['data_wait']:.2f}s "
+                    f"to_device={timing['to_device']:.2f}s "
+                    f"forward={timing['forward']:.2f}s "
+                    f"metrics={timing['metrics']:.2f}s "
+                    f"visualize={timing['visualize']:.2f}s "
+                    f"total={total_timing:.2f}s"
+                )
             
             # 记录指标
             self.log_data['val_psnr']['iters'].append(self.current_iters)
             self.log_data['val_psnr']['values'].append(avg_metrics['psnr'])
-            self.log_data['val_ssim']['iters'].append(self.current_iters)
-            self.log_data['val_ssim']['values'].append(avg_metrics['ssim'])
+            if 'ssim' in avg_metrics:
+                self.log_data['val_ssim']['iters'].append(self.current_iters)
+                self.log_data['val_ssim']['values'].append(avg_metrics['ssim'])
             
             self.model.train()
             return avg_metrics['psnr']
@@ -677,7 +943,8 @@ class TrainerAlphaSR(TrainerBase):
             data = next(iter(self.dataloaders['val']))
             data = self.prepare_data(data)
             with torch.no_grad():
-                predictions = self.model(data)
+                eval_model = self._model_for_rank0_eval()
+                predictions = eval_model(data)
             self.visualize_validation_sample(data, predictions, 0)
             self.logger.info(f"✅ Baseline visualization saved to: {self.image_dir / 'val'}")
             # except Exception as e:

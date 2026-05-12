@@ -1,0 +1,1204 @@
+[train.sh] CUDA_VISIBLE_DEVICES=0
+[train.sh] cuda_available= True device_count= 1 current= 0
+[train.sh] CPU split diagnostics: python scripts/diagnose_dataset_splits.py --cfg_path configs/ablation/ablation_4f_mask_prob_or_learnable_pos_no_cross.yaml
+[split-diff][INFO] cfg_path=configs/ablation/ablation_4f_mask_prob_or_learnable_pos_no_cross.yaml
+[split-diff][INFO] max_samples=8 phases=['train', 'val', 'test']
+[split-diff][INFO] phase=train build dataset
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 4696 tiles indexed
+[Dataset INFO] Pre-filter random sample enabled: seed=42, subset_tiles=4096
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=20840, removed=366, removed_tiles=18, kept_tiles=1024
+[Dataset INFO] Initialized for 1024 tile locations.
+  - Tile IDs Preview: first=['106_65', '56_59', '50_38', '109_86', '18_90', '77_96', '99_56', '98_24'] last=84_48 total=1024
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+  - Reflectance Input Bands: first 9
+  - Tile Cache: Active (/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/train)
+  - Hard Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=5a6bd0ac17)
+  - Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=4518a69e80)
+  - HR Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=58dcfdee8c)
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+[split-diff][INFO] phase=train len=1024 sampled=8 lr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/LR hr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR
+[split-diff][SUMMARY] phase=train
+[split-diff] train.lr_sequence: shape=(20, 11, 64, 64) finite=1.0000 min=-1.0000 mean=0.0324 std=0.6147 max=1.0000 zero_ratio=0.0000
+[split-diff] train.gt: shape=(64, 192, 192) finite=1.0000 min=-1.0000 mean=-0.0160 std=0.5691 max=1.0000 zero_ratio=0.0141
+[split-diff] train.mask: shape=(20,) finite=1.0000 min=0.0000 mean=0.9500 std=0.2179 max=1.0000 zero_ratio=0.0500
+[split-diff] train.mask_prob: shape=(20, 1, 64, 64) finite=1.0000 min=0.0000 mean=0.9131 std=0.2680 max=1.0000 zero_ratio=0.0010
+[split-diff] train.indicating_mask: shape=(20, 64, 64) finite=1.0000 min=0.0000 mean=0.9131 std=0.2680 max=1.0000 zero_ratio=0.0010
+[split-diff] train.timestamps: shape=(20,) finite=1.0000 min=1.0000 mean=173.0000 std=110.4898 max=353.0000 zero_ratio=0.0000
+[split-diff] train.lr_mean: n=8 min=-0.0330 mean=0.0266 std=0.0431 median=0.0322 max=0.0980
+[split-diff] train.lr_std: n=8 min=0.5485 mean=0.5752 std=0.0223 median=0.5653 max=0.6147
+[split-diff] train.gt_mean: n=8 min=-0.0292 mean=0.0104 std=0.0246 median=0.0142 max=0.0412
+[split-diff] train.gt_std: n=8 min=0.4679 mean=0.5318 std=0.0540 median=0.5273 max=0.6147
+[split-diff] train.mask_mean: n=16 min=0.7970 mean=0.8920 std=0.0575 median=0.8987 max=0.9648
+[split-diff] train.mask_valid_ratio: n=16 min=0.7967 mean=0.8927 std=0.0583 median=0.9005 max=0.9649
+[split-diff] train.temporal_valid_ratio: n=8 min=0.8500 mean=0.9500 std=0.0500 median=0.9500 max=1.0000
+[split-diff] train.timestamp_min: n=8 min=1.0000 mean=1.0000 std=0.0000 median=1.0000 max=1.0000
+[split-diff] train.timestamp_max: n=8 min=353.0000 mean=353.0000 std=0.0000 median=353.0000 max=353.0000
+[split-diff] train.paths_preview=['/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR/20180101_tile_106_65.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR/20180101_tile_58_30.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR/20180101_tile_85_73.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR/20180101_tile_113_78.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR/20180101_tile_26_101.tif']
+[split-diff][INFO] phase=val build dataset
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 2329 tiles indexed
+[Dataset INFO] Pre-filter random sample enabled: seed=43, subset_tiles=512
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=1300, removed=20, removed_tiles=1, kept_tiles=64
+[Dataset INFO] Initialized for 64 tile locations.
+  - Tile IDs Preview: first=['40_65', '109_44', '106_33', '34_114', '80_50', '14_74', '80_22', '28_113'] last=84_94 total=64
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+  - Reflectance Input Bands: first 9
+  - Tile Cache: Active (/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/val)
+  - Hard Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=5a6bd0ac17)
+  - Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=4518a69e80)
+  - HR Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=58dcfdee8c)
+  - Processed Sample Cache: Enabled (LRU size=64)
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+[split-diff][INFO] phase=val len=64 sampled=8 lr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/LR hr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR
+[split-diff][SUMMARY] phase=val
+[split-diff] val.lr_sequence: shape=(20, 11, 64, 64) finite=1.0000 min=-1.0000 mean=0.0747 std=0.5376 max=1.0000 zero_ratio=0.0000
+[split-diff] val.gt: shape=(64, 192, 192) finite=1.0000 min=-1.0000 mean=0.0044 std=0.4599 max=1.0000 zero_ratio=0.1102
+[split-diff] val.mask: shape=(20,) finite=1.0000 min=1.0000 mean=1.0000 std=0.0000 max=1.0000 zero_ratio=0.0000
+[split-diff] val.mask_prob: shape=(20, 1, 64, 64) finite=1.0000 min=0.0000 mean=0.9908 std=0.0752 max=1.0000 zero_ratio=0.0011
+[split-diff] val.indicating_mask: shape=(20, 64, 64) finite=1.0000 min=0.0000 mean=0.9908 std=0.0752 max=1.0000 zero_ratio=0.0011
+[split-diff] val.timestamps: shape=(20,) finite=1.0000 min=1.0000 mean=173.0000 std=110.4898 max=353.0000 zero_ratio=0.0000
+[split-diff] val.lr_mean: n=8 min=-0.0681 mean=0.0677 std=0.0928 median=0.0535 max=0.2199
+[split-diff] val.lr_std: n=8 min=0.5376 mean=0.5572 std=0.0211 median=0.5486 max=0.6096
+[split-diff] val.gt_mean: n=8 min=-0.0338 mean=-0.0042 std=0.0182 median=0.0020 max=0.0261
+[split-diff] val.gt_std: n=8 min=0.4599 mean=0.5080 std=0.0416 median=0.4965 max=0.5778
+[split-diff] val.mask_mean: n=16 min=0.8114 mean=0.9202 std=0.0571 median=0.9303 max=0.9908
+[split-diff] val.mask_valid_ratio: n=16 min=0.8125 mean=0.9204 std=0.0570 median=0.9302 max=0.9920
+[split-diff] val.temporal_valid_ratio: n=8 min=0.8500 mean=0.9562 std=0.0527 median=0.9750 max=1.0000
+[split-diff] val.timestamp_min: n=8 min=1.0000 mean=1.0000 std=0.0000 median=1.0000 max=1.0000
+[split-diff] val.timestamp_max: n=8 min=353.0000 mean=353.0000 std=0.0000 median=353.0000 max=353.0000
+[split-diff] val.paths_preview=['/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR/20180101_tile_40_65.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR/20180101_tile_50_21.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR/20180101_tile_74_74.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR/20180101_tile_76_101.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR/20180101_tile_34_99.tif']
+[split-diff][INFO] phase=test build dataset
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 2352 tiles indexed
+[Dataset INFO] Pre-filter random sample enabled: seed=44, subset_tiles=512
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=1300, removed=21, removed_tiles=1, kept_tiles=64
+[Dataset INFO] Initialized for 64 tile locations.
+  - Tile IDs Preview: first=['115_82', '62_64', '98_25', '46_53', '61_32', '37_91', '81_39', '50_95'] last=18_44 total=64
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+  - Reflectance Input Bands: first 9
+  - Tile Cache: Active (/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/test)
+  - Hard Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/test, key=5a6bd0ac17)
+  - Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/test, key=4518a69e80)
+  - HR Cache: Enabled (tmp/mask_cache/ablation_4f/test, key=58dcfdee8c)
+  - Processed Sample Cache: Enabled (LRU size=64)
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+[split-diff][INFO] phase=test len=64 sampled=8 lr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/LR hr_dir=/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR
+[split-diff][SUMMARY] phase=test
+[split-diff] test.lr_sequence: shape=(20, 11, 64, 64) finite=1.0000 min=-1.0000 mean=0.0826 std=0.5681 max=1.0000 zero_ratio=0.0000
+[split-diff] test.gt: shape=(64, 192, 192) finite=1.0000 min=-1.0000 mean=0.0442 std=0.5442 max=1.0000 zero_ratio=0.0157
+[split-diff] test.mask: shape=(20,) finite=1.0000 min=0.0000 mean=0.9500 std=0.2179 max=1.0000 zero_ratio=0.0500
+[split-diff] test.mask_prob: shape=(20, 1, 64, 64) finite=1.0000 min=0.0000 mean=0.8938 std=0.3009 max=1.0000 zero_ratio=0.0010
+[split-diff] test.indicating_mask: shape=(20, 64, 64) finite=1.0000 min=0.0000 mean=0.8938 std=0.3009 max=1.0000 zero_ratio=0.0010
+[split-diff] test.timestamps: shape=(20,) finite=1.0000 min=1.0000 mean=173.0000 std=110.4898 max=353.0000 zero_ratio=0.0000
+[split-diff] test.lr_mean: n=8 min=-0.0329 mean=0.0548 std=0.0628 median=0.0521 max=0.1574
+[split-diff] test.lr_std: n=8 min=0.5160 mean=0.5510 std=0.0181 median=0.5540 max=0.5706
+[split-diff] test.gt_mean: n=8 min=-0.0460 mean=-0.0036 std=0.0282 median=-0.0089 max=0.0442
+[split-diff] test.gt_std: n=8 min=0.4971 mean=0.5494 std=0.0273 median=0.5542 max=0.5798
+[split-diff] test.mask_mean: n=16 min=0.8433 mean=0.9053 std=0.0465 median=0.9070 max=0.9987
+[split-diff] test.mask_valid_ratio: n=16 min=0.8424 mean=0.9064 std=0.0468 median=0.9078 max=0.9987
+[split-diff] test.temporal_valid_ratio: n=8 min=0.9000 mean=0.9500 std=0.0250 median=0.9500 max=1.0000
+[split-diff] test.timestamp_min: n=8 min=1.0000 mean=1.0000 std=0.0000 median=1.0000 max=1.0000
+[split-diff] test.timestamp_max: n=8 min=353.0000 mean=353.0000 std=0.0000 median=353.0000 max=353.0000
+[split-diff] test.paths_preview=['/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR/20180101_tile_115_82.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR/20180101_tile_19_47.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR/20180101_tile_81_49.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR/20180101_tile_88_33.tif', '/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR/20180101_tile_92_86.tif']
+[split-diff][COMPARE] train vs val
+[split-diff][WARN] lr_mean: train_mean=0.0266 val_mean=0.0677 delta=0.0411 rel=154.19%
+[split-diff][INFO] lr_std: train_mean=0.5752 val_mean=0.5572 delta=-0.0180 rel=-3.13%
+[split-diff][INFO] gt_mean: train_mean=0.0104 val_mean=-0.0042 delta=-0.0146 rel=-140.76%
+[split-diff][INFO] gt_std: train_mean=0.5318 val_mean=0.5080 delta=-0.0238 rel=-4.48%
+[split-diff][INFO] mask_mean: train_mean=0.8920 val_mean=0.9202 delta=0.0282 rel=3.16%
+[split-diff][INFO] mask_valid_ratio: train_mean=0.8927 val_mean=0.9204 delta=0.0277 rel=3.11%
+[split-diff][INFO] temporal_valid_ratio: train_mean=0.9500 val_mean=0.9562 delta=0.0063 rel=0.66%
+[split-diff][COMPARE] train vs test
+[split-diff][WARN] lr_mean: train_mean=0.0266 test_mean=0.0548 delta=0.0281 rel=105.55%
+[split-diff][INFO] lr_std: train_mean=0.5752 test_mean=0.5510 delta=-0.0242 rel=-4.20%
+[split-diff][INFO] gt_mean: train_mean=0.0104 test_mean=-0.0036 delta=-0.0140 rel=-134.20%
+[split-diff][INFO] gt_std: train_mean=0.5318 test_mean=0.5494 delta=0.0176 rel=3.31%
+[split-diff][INFO] mask_mean: train_mean=0.8920 test_mean=0.9053 delta=0.0133 rel=1.50%
+[split-diff][INFO] mask_valid_ratio: train_mean=0.8927 test_mean=0.9064 delta=0.0137 rel=1.54%
+[split-diff][INFO] temporal_valid_ratio: train_mean=0.9500 test_mean=0.9500 delta=-0.0000 rel=-0.00%
+[split-diff][COMPARE] val vs test
+[split-diff][INFO] lr_mean: val_mean=0.0677 test_mean=0.0548 delta=-0.0130 rel=-19.14%
+[split-diff][INFO] lr_std: val_mean=0.5572 test_mean=0.5510 delta=-0.0062 rel=-1.11%
+[split-diff][INFO] gt_mean: val_mean=-0.0042 test_mean=-0.0036 delta=0.0007 rel=16.10%
+[split-diff][INFO] gt_std: val_mean=0.5080 test_mean=0.5494 delta=0.0414 rel=8.15%
+[split-diff][INFO] mask_mean: val_mean=0.9202 test_mean=0.9053 delta=-0.0148 rel=-1.61%
+[split-diff][INFO] mask_valid_ratio: val_mean=0.9204 test_mean=0.9064 delta=-0.0140 rel=-1.52%
+[split-diff][INFO] temporal_valid_ratio: val_mean=0.9562 test_mean=0.9500 delta=-0.0063 rel=-0.65%
+[split-diff][INFO] done
+[train.sh] Run: python main.py --cfg_path configs/ablation/ablation_4f_mask_prob_or_learnable_pos_no_cross.yaml --mode train
+
+================================================================================
+🚀 Starting Training Mode...
+================================================================================
+[Main] Model type detected: default
+[Main] Using trainer: trainer_mask_ablation.TrainerAlphaSRMaskAblation
+model:
+  target: models.network_swinir.SwinIR
+  params:
+    temporal_fusion_mode: mean
+    img_size: 64
+    upscale: 3
+    upsampler: pixelshuffle
+    window_size: 8
+    embed_dim: 180
+    depths:
+    - 6
+    - 6
+    - 6
+    - 6
+    num_heads:
+    - 6
+    - 6
+    - 6
+    - 6
+    mlp_ratio: 4
+    resi_connection: 1conv
+    out_channels: 64
+    fusion_module: lightweight_channel_attention
+    use_cross_attention: false
+    cross_num_heads: 6
+    cross_downsample_rate: 1
+    cross_concat_value: false
+    use_pos_emb: true
+    use_learnable_pos_emb: true
+    pos_emb_dim: 180
+    temporal_attention_params:
+      num_heads: 6
+data:
+  train:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/LR
+      hr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR
+      pre_filter_sample_num: 4096
+      pre_filter_seed: 42
+      sample_num: 1024
+      enable_hr_zero_filter: true
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: ./patch_stats.log
+      cache_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/train
+      mask_cache_dir: ./tmp/mask_cache/ablation_4f/train
+      hard_mask_cache_dir: ./tmp/mask_cache/ablation_4f/train
+      hr_cache_dir: ./tmp/mask_cache/ablation_4f/train
+      valid_mask_band_count: 9
+      reflectance_band_count: 9
+      use_tile_cache: true
+      sample_cache_mem_size: 0
+  val:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/LR
+      hr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR
+      pre_filter_sample_num: 512
+      pre_filter_seed: 43
+      sample_num: 64
+      enable_hr_zero_filter: true
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: ./patch_stats.log
+      cache_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/val
+      mask_cache_dir: ./tmp/mask_cache/ablation_4f/val
+      hard_mask_cache_dir: ./tmp/mask_cache/ablation_4f/val
+      hr_cache_dir: ./tmp/mask_cache/ablation_4f/val
+      valid_mask_band_count: 9
+      reflectance_band_count: 9
+      use_tile_cache: true
+      sample_cache_mem_size: 64
+  test:
+    target: datapipe.datasets.AnytimeTemporalDataset
+    params:
+      lr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/LR
+      hr_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR
+      enable_hr_zero_filter: true
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: ./patch_stats.log
+      pre_filter_sample_num: 512
+      pre_filter_seed: 44
+      sample_num: 64
+      cache_dir: /mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/test
+      mask_cache_dir: ./tmp/mask_cache/ablation_4f/test
+      hard_mask_cache_dir: ./tmp/mask_cache/ablation_4f/test
+      hr_cache_dir: ./tmp/mask_cache/ablation_4f/test
+      valid_mask_band_count: 9
+      reflectance_band_count: 9
+      use_tile_cache: true
+      sample_cache_mem_size: 64
+trainer:
+  target: trainer_mask_ablation.TrainerAlphaSRMaskAblation
+loss:
+  target: trainer.MixedLoss
+  params:
+    ssim_weight: 1.0
+    l2_weight: 1.0
+    data_range: 2.0
+features:
+  time_band:
+    enabled: true
+  mask_band:
+    enabled: true
+    use_advanced_processor: true
+    processor:
+      mask_type: soft
+      use_spatial_smoothing: true
+      smoothing_sigma: 1.0
+      soft_mask_sigma: 2.0
+train:
+  save_dir: ./training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross
+  batch:
+  - 4
+  - 8
+  iterations: 20000
+  lr: 5.0e-05
+  lr_schedule: ReduceLROnPlateau
+  lr_schedule_params:
+    patience: 2
+    factor: 0.5
+    threshold: 0.01
+    threshold_mode: abs
+    min_lr: 1.0e-06
+  lr_min: 1.0e-06
+  weight_decay: 0.0001
+  global_seeding: true
+  seed: 42
+  num_workers: 4
+  val_num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+  log_freq:
+  - 100
+  - 200
+  - 200
+  save_freq: 500
+  val_freq: 500
+  rgb_chn:
+  - 2
+  - 1
+  - 0
+  local_logging: true
+  indicating_mask_reduce: mean
+  debug_batch_log_freq: 500
+  debug_batch_log_max: 8
+  val_debug_max_samples: 8
+  val_compute_expensive_metrics: false
+  val_timing_log: true
+inference:
+  padding_offset: 16
+resume: null
+
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 4696 tiles indexed
+[Dataset INFO] Pre-filter random sample enabled: seed=42, subset_tiles=4096
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=20840, removed=366, removed_tiles=18, kept_tiles=1024
+[Dataset INFO] Initialized for 1024 tile locations.
+  - Tile IDs Preview: first=['106_65', '56_59', '50_38', '109_86', '18_90', '77_96', '99_56', '98_24'] last=84_48 total=1024
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+  - Reflectance Input Bands: first 9
+  - Tile Cache: Active (/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/train)
+  - Hard Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=5a6bd0ac17)
+  - Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=4518a69e80)
+  - HR Cache: Enabled (tmp/mask_cache/ablation_4f/train, key=58dcfdee8c)
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+[Dataset INFO] AnytimeTemporalDataset __init__: begin
+[Dataset INFO] Building LR file index (single pass)...
+[Dataset INFO] LR index done: 2329 tiles indexed
+[Dataset INFO] Pre-filter random sample enabled: seed=43, subset_tiles=512
+[Dataset INFO] Pair-zero filter enabled: threshold>0.05, matched=1300, removed=20, removed_tiles=1, kept_tiles=64
+[Dataset INFO] Initialized for 64 tile locations.
+  - Tile IDs Preview: first=['40_65', '109_44', '106_33', '34_114', '80_50', '14_74', '80_22', '28_113'] last=84_94 total=64
+  - Time Feature Injection: Enabled
+  - Mask Feature Injection: Enabled
+  - Mask Type: soft
+  - Use Advanced Processor: True
+  - Reflectance Input Bands: first 9
+  - Tile Cache: Active (/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/val)
+  - Hard Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=5a6bd0ac17)
+  - Mask Sidecar Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=4518a69e80)
+  - HR Cache: Enabled (tmp/mask_cache/ablation_4f/val, key=58dcfdee8c)
+  - Processed Sample Cache: Enabled (LRU size=64)
+[Dataset INFO] AnytimeTemporalDataset __init__: done
+📊 Dataset [train] size: 1024
+📊 Dataset [val] size: 64
+✅ Dynamically detected in_chans: 11
+📝 Instantiating loss function from config
+🔥 Initialized MixedLoss | L2_weight=1.0, SSIM_weight=1.0, DataRange=2.0
+🎨 Generating baseline visualization...
+✅ Baseline visualization saved to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/images/val
+🔎 train mask debug iter=1 reduce=mean mask_mean=0.9257 mask_gt_0.5=1.0000
+🔎 train debug iter=1 | lr_sequence: shape=(4, 20, 11, 64, 64) min=-1.0000 mean=0.0792 max=1.0000 | gt: shape=(4, 64, 192, 192) min=-1.0000 mean=-0.0245 max=1.0000 | mask: shape=(4, 20) min=0.0000 mean=0.9750 max=1.0000 | mask_prob: shape=(4, 20, 1, 64, 64) min=0.0000 mean=0.9257 max=1.0000 | indicating_mask: shape=(4, 20, 64, 64) min=0.0000 mean=0.9257 max=1.0000 | timestamps: shape=(4, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(4, 64, 192, 192) min=-1.1104 mean=0.0103 max=1.1132 | loss=1.344891
+🔎 train mask debug iter=2 reduce=mean mask_mean=0.9099 mask_gt_0.5=0.9999
+🔎 train debug iter=2 | lr_sequence: shape=(4, 20, 11, 64, 64) min=-1.0000 mean=0.0551 max=1.0000 | gt: shape=(4, 64, 192, 192) min=-1.0000 mean=0.0284 max=1.0000 | mask: shape=(4, 20) min=0.0000 mean=0.9625 max=1.0000 | mask_prob: shape=(4, 20, 1, 64, 64) min=0.0000 mean=0.9099 max=1.0000 | indicating_mask: shape=(4, 20, 64, 64) min=0.0000 mean=0.9099 max=1.0000 | timestamps: shape=(4, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(4, 64, 192, 192) min=-1.0479 mean=0.0054 max=1.1799 | loss=1.367528
+🔎 train mask debug iter=3 reduce=mean mask_mean=0.9366 mask_gt_0.5=0.9999
+🔎 train debug iter=3 | lr_sequence: shape=(4, 20, 11, 64, 64) min=-1.0000 mean=0.0510 max=1.0000 | gt: shape=(4, 64, 192, 192) min=-1.0000 mean=-0.0216 max=1.0000 | mask: shape=(4, 20) min=0.0000 mean=0.9750 max=1.0000 | mask_prob: shape=(4, 20, 1, 64, 64) min=0.0000 mean=0.9366 max=1.0000 | indicating_mask: shape=(4, 20, 64, 64) min=0.0000 mean=0.9366 max=1.0000 | timestamps: shape=(4, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(4, 64, 192, 192) min=-1.0220 mean=0.0050 max=1.0462 | loss=1.343351
+🔎 train mask debug iter=4 reduce=mean mask_mean=0.9489 mask_gt_0.5=1.0000
+🔎 train debug iter=4 | lr_sequence: shape=(4, 20, 11, 64, 64) min=-1.0000 mean=0.0851 max=1.0000 | gt: shape=(4, 64, 192, 192) min=-1.0000 mean=-0.0105 max=1.0000 | mask: shape=(4, 20) min=0.0000 mean=0.9750 max=1.0000 | mask_prob: shape=(4, 20, 1, 64, 64) min=0.0000 mean=0.9489 max=1.0000 | indicating_mask: shape=(4, 20, 64, 64) min=0.0000 mean=0.9489 max=1.0000 | timestamps: shape=(4, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(4, 64, 192, 192) min=-1.0172 mean=0.0026 max=0.9857 | loss=1.303644
+🔎 train mask debug iter=5 reduce=mean mask_mean=0.9687 mask_gt_0.5=1.0000
+🔎 train debug iter=5 | lr_sequence: shape=(4, 20, 11, 64, 64) min=-1.0000 mean=0.0361 max=1.0000 | gt: shape=(4, 64, 192, 192) min=-1.0000 mean=0.0014 max=1.0000 | mask: shape=(4, 20) min=0.0000 mean=0.9750 max=1.0000 | mask_prob: shape=(4, 20, 1, 64, 64) min=0.0000 mean=0.9687 max=1.0000 | indicating_mask: shape=(4, 20, 64, 64) min=0.0000 mean=0.9687 max=1.0000 | timestamps: shape=(4, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(4, 64, 192, 192) min=-0.9598 mean=0.0008 max=1.0065 | loss=1.263478
+📈 Iter 100 | Train Loss: 1.108834 | LR: 5.000e-05
+📈 Iter 200 | Train Loss: 1.148641 | LR: 5.000e-05
+📈 Iter 300 | Train Loss: 1.095752 | LR: 5.000e-05
+📈 Iter 400 | Train Loss: 1.097727 | LR: 5.000e-05
+🔎 train mask debug iter=500 reduce=mean mask_mean=0.8749 mask_gt_0.5=0.9995
+🔎 train debug iter=500 | lr_sequence: shape=(4, 20, 11, 64, 64) min=-1.0000 mean=0.0505 max=1.0000 | gt: shape=(4, 64, 192, 192) min=-1.0000 mean=-0.0168 max=1.0000 | mask: shape=(4, 20) min=0.0000 mean=0.9125 max=1.0000 | mask_prob: shape=(4, 20, 1, 64, 64) min=0.0000 mean=0.8749 max=1.0000 | indicating_mask: shape=(4, 20, 64, 64) min=0.0000 mean=0.8749 max=1.0000 | timestamps: shape=(4, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(4, 64, 192, 192) min=-1.7541 mean=-0.0225 max=1.8504 | loss=1.079356
+📈 Iter 500 | Train Loss: 1.079356 | LR: 5.000e-05
+📌 Val Iter 500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 val debug iter=500 | lr_sequence: shape=(8, 20, 11, 64, 64) min=-1.0000 mean=0.0358 max=1.0000 | gt: shape=(8, 64, 192, 192) min=-1.0000 mean=-0.0130 max=1.0000 | mask: shape=(8, 20) min=0.0000 mean=0.9438 max=1.0000 | mask_prob: shape=(8, 20, 1, 64, 64) min=0.0000 mean=0.8885 max=1.0000 | indicating_mask: shape=(8, 20, 64, 64) min=0.0000 mean=0.8885 max=1.0000 | timestamps: shape=(8, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(8, 64, 192, 192) min=-1.9449 mean=-0.0228 max=2.0478
+🔎 Val sample debug | iter=500 idx=0 psnr=12.6101 gt_mean=0.5022 pred_mean=0.4888 path=None
+🔎 Val sample debug | iter=500 idx=1 psnr=12.1018 gt_mean=0.4989 pred_mean=0.4894 path=None
+🔎 Val sample debug | iter=500 idx=2 psnr=12.0766 gt_mean=0.4761 pred_mean=0.4830 path=None
+🔎 Val sample debug | iter=500 idx=3 psnr=14.4151 gt_mean=0.4867 pred_mean=0.4896 path=None
+🔎 Val sample debug | iter=500 idx=4 psnr=12.7961 gt_mean=0.4746 pred_mean=0.4840 path=None
+🔎 Val sample debug | iter=500 idx=5 psnr=14.1848 gt_mean=0.4788 pred_mean=0.4935 path=None
+🔎 Val sample debug | iter=500 idx=6 psnr=13.8400 gt_mean=0.5188 pred_mean=0.4925 path=None
+🔎 Val sample debug | iter=500 idx=7 psnr=12.5383 gt_mean=0.5119 pred_mean=0.4884 path=None
+📌 Val Iter 500:  12%|█▎        | 1/8 [00:00<00:04,  1.60it/s]🔎 val debug iter=500 | lr_sequence: shape=(8, 20, 11, 64, 64) min=-1.0000 mean=0.0769 max=1.0000 | gt: shape=(8, 64, 192, 192) min=-1.0000 mean=-0.0256 max=1.0000 | mask: shape=(8, 20) min=0.0000 mean=0.8813 max=1.0000 | mask_prob: shape=(8, 20, 1, 64, 64) min=0.0000 mean=0.8282 max=1.0000 | indicating_mask: shape=(8, 20, 64, 64) min=0.0000 mean=0.8282 max=1.0000 | timestamps: shape=(8, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(8, 64, 192, 192) min=-1.9080 mean=-0.0322 max=2.3287
+🔎 val debug iter=500 | lr_sequence: shape=(8, 20, 11, 64, 64) min=-1.0000 mean=0.0603 max=1.0000 | gt: shape=(8, 64, 192, 192) min=-1.0000 mean=-0.0178 max=1.0000 | mask: shape=(8, 20) min=0.0000 mean=0.9563 max=1.0000 | mask_prob: shape=(8, 20, 1, 64, 64) min=0.0000 mean=0.9220 max=1.0000 | indicating_mask: shape=(8, 20, 64, 64) min=0.0000 mean=0.9220 max=1.0000 | timestamps: shape=(8, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(8, 64, 192, 192) min=-1.6572 mean=-0.0152 max=1.8120
+🔎 val debug iter=500 | lr_sequence: shape=(8, 20, 11, 64, 64) min=-1.0000 mean=0.0535 max=1.0000 | gt: shape=(8, 64, 192, 192) min=-1.0000 mean=-0.0156 max=1.0000 | mask: shape=(8, 20) min=0.0000 mean=0.9563 max=1.0000 | mask_prob: shape=(8, 20, 1, 64, 64) min=0.0000 mean=0.9314 max=1.0000 | indicating_mask: shape=(8, 20, 64, 64) min=0.0000 mean=0.9314 max=1.0000 | timestamps: shape=(8, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(8, 64, 192, 192) min=-1.7893 mean=-0.0200 max=1.9737
+📌 Val Iter 500:  50%|█████     | 4/8 [00:00<00:00,  6.45it/s]🔎 val debug iter=500 | lr_sequence: shape=(8, 20, 11, 64, 64) min=-1.0000 mean=0.0611 max=1.0000 | gt: shape=(8, 64, 192, 192) min=-1.0000 mean=-0.0087 max=1.0000 | mask: shape=(8, 20) min=0.0000 mean=0.9875 max=1.0000 | mask_prob: shape=(8, 20, 1, 64, 64) min=0.0000 mean=0.9526 max=1.0000 | indicating_mask: shape=(8, 20, 64, 64) min=0.0000 mean=0.9526 max=1.0000 | timestamps: shape=(8, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(8, 64, 192, 192) min=-2.2820 mean=-0.0142 max=1.9642
+🔎 val debug iter=500 | lr_sequence: shape=(8, 20, 11, 64, 64) min=-1.0000 mean=0.0328 max=1.0000 | gt: shape=(8, 64, 192, 192) min=-1.0000 mean=-0.0013 max=1.0000 | mask: shape=(8, 20) min=0.0000 mean=0.9500 max=1.0000 | mask_prob: shape=(8, 20, 1, 64, 64) min=0.0000 mean=0.9141 max=1.0000 | indicating_mask: shape=(8, 20, 64, 64) min=0.0000 mean=0.9141 max=1.0000 | timestamps: shape=(8, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(8, 64, 192, 192) min=-1.6708 mean=-0.0197 max=1.7675
+🔎 val debug iter=500 | lr_sequence: shape=(8, 20, 11, 64, 64) min=-1.0000 mean=0.1157 max=1.0000 | gt: shape=(8, 64, 192, 192) min=-1.0000 mean=-0.0204 max=1.0000 | mask: shape=(8, 20) min=0.0000 mean=0.9688 max=1.0000 | mask_prob: shape=(8, 20, 1, 64, 64) min=0.0000 mean=0.9215 max=1.0000 | indicating_mask: shape=(8, 20, 64, 64) min=0.0000 mean=0.9215 max=1.0000 | timestamps: shape=(8, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(8, 64, 192, 192) min=-1.7959 mean=-0.0257 max=1.8745
+📌 Val Iter 500:  88%|████████▊ | 7/8 [00:00<00:00, 10.41it/s]🔎 val debug iter=500 | lr_sequence: shape=(8, 20, 11, 64, 64) min=-1.0000 mean=0.1108 max=1.0000 | gt: shape=(8, 64, 192, 192) min=-1.0000 mean=-0.0102 max=1.0000 | mask: shape=(8, 20) min=0.0000 mean=0.9563 max=1.0000 | mask_prob: shape=(8, 20, 1, 64, 64) min=0.0000 mean=0.9205 max=1.0000 | indicating_mask: shape=(8, 20, 64, 64) min=0.0000 mean=0.9205 max=1.0000 | timestamps: shape=(8, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(8, 64, 192, 192) min=-1.7878 mean=-0.0236 max=2.0427
+📌 Val Iter 500: 100%|██████████| 8/8 [00:00<00:00,  8.49it/s]
+📊 Validation Metrics | PSNR: 13.4372 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 13.4374
+🔎 Validation PSNR spread | min=11.2799 median=13.5578 max=15.5411 n=64
+🔎 Validation per-band PSNR mean | b0:13.30, b1:12.75, b2:15.34, b3:13.78, b4:12.13, b5:13.87, b6:13.52, b7:13.64, b8:13.10, b9:13.95, b10:13.31, b11:13.25, b12:12.23, b13:13.75, b14:12.89, b15:12.54, ...
+⏱️ Validation timing | data_wait=0.20s to_device=0.02s forward=0.32s metrics=0.02s visualize=0.36s total=0.92s
+🏆 New best metric: 13.4372 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_500.pth
+📈 Iter 600 | Train Loss: 1.102043 | LR: 5.000e-05
+📈 Iter 700 | Train Loss: 1.025593 | LR: 5.000e-05
+📈 Iter 800 | Train Loss: 1.074133 | LR: 5.000e-05
+📈 Iter 900 | Train Loss: 1.038397 | LR: 5.000e-05
+🔎 train mask debug iter=1000 reduce=mean mask_mean=0.9005 mask_gt_0.5=1.0000
+🔎 train debug iter=1000 | lr_sequence: shape=(4, 20, 11, 64, 64) min=-1.0000 mean=0.1578 max=1.0000 | gt: shape=(4, 64, 192, 192) min=-1.0000 mean=-0.0156 max=1.0000 | mask: shape=(4, 20) min=0.0000 mean=0.9500 max=1.0000 | mask_prob: shape=(4, 20, 1, 64, 64) min=0.0000 mean=0.9005 max=1.0000 | indicating_mask: shape=(4, 20, 64, 64) min=0.0000 mean=0.9005 max=1.0000 | timestamps: shape=(4, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(4, 64, 192, 192) min=-1.8074 mean=-0.0455 max=2.0021 | loss=1.066283
+📈 Iter 1000 | Train Loss: 1.066283 | LR: 5.000e-05
+📌 Val Iter 1000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=1000 idx=0 psnr=12.9827 gt_mean=0.5022 pred_mean=0.4881 path=None
+🔎 Val sample debug | iter=1000 idx=1 psnr=11.9995 gt_mean=0.4989 pred_mean=0.4855 path=None
+🔎 Val sample debug | iter=1000 idx=2 psnr=12.3700 gt_mean=0.4761 pred_mean=0.4799 path=None
+🔎 Val sample debug | iter=1000 idx=3 psnr=14.8546 gt_mean=0.4867 pred_mean=0.4852 path=None
+🔎 Val sample debug | iter=1000 idx=4 psnr=12.9268 gt_mean=0.4746 pred_mean=0.4832 path=None
+🔎 Val sample debug | iter=1000 idx=5 psnr=14.7732 gt_mean=0.4788 pred_mean=0.4895 path=None
+🔎 Val sample debug | iter=1000 idx=6 psnr=13.9209 gt_mean=0.5188 pred_mean=0.4907 path=None
+🔎 Val sample debug | iter=1000 idx=7 psnr=12.8613 gt_mean=0.5119 pred_mean=0.4864 path=None
+📌 Val Iter 1000:  12%|█▎        | 1/8 [00:00<00:04,  1.63it/s]📌 Val Iter 1000:  50%|█████     | 4/8 [00:00<00:00,  6.62it/s]📌 Val Iter 1000:  88%|████████▊ | 7/8 [00:00<00:00, 10.78it/s]📌 Val Iter 1000: 100%|██████████| 8/8 [00:00<00:00,  8.76it/s]
+📊 Validation Metrics | PSNR: 13.5965 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 13.5967
+🔎 Validation PSNR spread | min=11.4990 median=13.7323 max=15.6850 n=64
+🔎 Validation per-band PSNR mean | b0:13.47, b1:12.98, b2:15.36, b3:13.85, b4:12.21, b5:14.29, b6:13.71, b7:13.67, b8:13.17, b9:14.15, b10:13.57, b11:13.53, b12:12.34, b13:13.78, b14:13.11, b15:12.71, ...
+⏱️ Validation timing | data_wait=0.21s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.36s total=0.91s
+🏆 New best metric: 13.5965 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_1000.pth
+📈 Iter 1100 | Train Loss: 1.051197 | LR: 5.000e-05
+📈 Iter 1200 | Train Loss: 1.009299 | LR: 5.000e-05
+📈 Iter 1300 | Train Loss: 1.048090 | LR: 5.000e-05
+📈 Iter 1400 | Train Loss: 1.085443 | LR: 5.000e-05
+🔎 train mask debug iter=1500 reduce=mean mask_mean=0.8669 mask_gt_0.5=1.0000
+🔎 train debug iter=1500 | lr_sequence: shape=(4, 20, 11, 64, 64) min=-1.0000 mean=0.0566 max=1.0000 | gt: shape=(4, 64, 192, 192) min=-1.0000 mean=-0.0097 max=1.0000 | mask: shape=(4, 20) min=0.0000 mean=0.9500 max=1.0000 | mask_prob: shape=(4, 20, 1, 64, 64) min=0.0000 mean=0.8669 max=1.0000 | indicating_mask: shape=(4, 20, 64, 64) min=0.0000 mean=0.8669 max=1.0000 | timestamps: shape=(4, 20) min=1.0000 mean=173.0000 max=353.0000 | pred: shape=(4, 64, 192, 192) min=-1.8042 mean=-0.0217 max=1.8795 | loss=1.042677
+📈 Iter 1500 | Train Loss: 1.042677 | LR: 5.000e-05
+📌 Val Iter 1500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=1500 idx=0 psnr=12.7136 gt_mean=0.5022 pred_mean=0.4902 path=None
+🔎 Val sample debug | iter=1500 idx=1 psnr=12.2904 gt_mean=0.4989 pred_mean=0.4905 path=None
+🔎 Val sample debug | iter=1500 idx=2 psnr=12.4181 gt_mean=0.4761 pred_mean=0.4834 path=None
+🔎 Val sample debug | iter=1500 idx=3 psnr=14.3835 gt_mean=0.4867 pred_mean=0.4890 path=None
+🔎 Val sample debug | iter=1500 idx=4 psnr=12.9559 gt_mean=0.4746 pred_mean=0.4841 path=None
+🔎 Val sample debug | iter=1500 idx=5 psnr=14.6398 gt_mean=0.4788 pred_mean=0.4925 path=None
+🔎 Val sample debug | iter=1500 idx=6 psnr=14.0091 gt_mean=0.5188 pred_mean=0.4927 path=None
+🔎 Val sample debug | iter=1500 idx=7 psnr=12.4735 gt_mean=0.5119 pred_mean=0.4875 path=None
+📌 Val Iter 1500:  12%|█▎        | 1/8 [00:00<00:04,  1.65it/s]📌 Val Iter 1500:  50%|█████     | 4/8 [00:00<00:00,  6.70it/s]📌 Val Iter 1500:  88%|████████▊ | 7/8 [00:00<00:00, 10.88it/s]📌 Val Iter 1500: 100%|██████████| 8/8 [00:00<00:00,  8.85it/s]
+📊 Validation Metrics | PSNR: 13.5844 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 13.5845
+🔎 Validation PSNR spread | min=11.5378 median=13.7174 max=15.7336 n=64
+🔎 Validation per-band PSNR mean | b0:13.46, b1:13.04, b2:15.20, b3:13.93, b4:12.15, b5:14.31, b6:13.70, b7:13.73, b8:13.25, b9:14.07, b10:13.57, b11:13.41, b12:12.41, b13:13.78, b14:13.19, b15:12.62, ...
+⏱️ Validation timing | data_wait=0.21s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.35s total=0.90s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_1500.pth
+📈 Iter 1600 | Train Loss: 1.171739 | LR: 5.000e-05
+📈 Iter 1700 | Train Loss: 1.072691 | LR: 5.000e-05
+📈 Iter 1800 | Train Loss: 1.073759 | LR: 5.000e-05
+📈 Iter 1900 | Train Loss: 1.035064 | LR: 5.000e-05
+🔎 train mask debug iter=2000 reduce=mean mask_mean=0.9139 mask_gt_0.5=1.0000
+📈 Iter 2000 | Train Loss: 0.948406 | LR: 5.000e-05
+📌 Val Iter 2000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=2000 idx=0 psnr=13.0813 gt_mean=0.5022 pred_mean=0.4886 path=None
+🔎 Val sample debug | iter=2000 idx=1 psnr=12.2263 gt_mean=0.4989 pred_mean=0.4853 path=None
+🔎 Val sample debug | iter=2000 idx=2 psnr=12.4226 gt_mean=0.4761 pred_mean=0.4796 path=None
+🔎 Val sample debug | iter=2000 idx=3 psnr=14.8348 gt_mean=0.4867 pred_mean=0.4843 path=None
+🔎 Val sample debug | iter=2000 idx=4 psnr=12.7454 gt_mean=0.4746 pred_mean=0.4809 path=None
+🔎 Val sample debug | iter=2000 idx=5 psnr=15.0559 gt_mean=0.4788 pred_mean=0.4888 path=None
+🔎 Val sample debug | iter=2000 idx=6 psnr=14.0061 gt_mean=0.5188 pred_mean=0.4890 path=None
+🔎 Val sample debug | iter=2000 idx=7 psnr=12.6083 gt_mean=0.5119 pred_mean=0.4874 path=None
+📌 Val Iter 2000:  12%|█▎        | 1/8 [00:00<00:03,  1.78it/s]📌 Val Iter 2000:  50%|█████     | 4/8 [00:00<00:00,  7.10it/s]📌 Val Iter 2000:  88%|████████▊ | 7/8 [00:00<00:00, 11.36it/s]📌 Val Iter 2000: 100%|██████████| 8/8 [00:00<00:00,  9.31it/s]
+📊 Validation Metrics | PSNR: 13.6288 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 13.6290
+🔎 Validation PSNR spread | min=11.5288 median=13.7242 max=15.3934 n=64
+🔎 Validation per-band PSNR mean | b0:13.53, b1:13.08, b2:15.34, b3:14.01, b4:12.36, b5:14.15, b6:13.83, b7:13.66, b8:13.17, b9:14.21, b10:13.56, b11:13.57, b12:12.43, b13:13.77, b14:13.26, b15:12.66, ...
+⏱️ Validation timing | data_wait=0.17s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.35s total=0.86s
+🏆 New best metric: 13.6288 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_2000.pth
+📈 Iter 2100 | Train Loss: 1.026980 | LR: 5.000e-05
+📈 Iter 2200 | Train Loss: 1.016703 | LR: 5.000e-05
+📈 Iter 2300 | Train Loss: 1.030956 | LR: 5.000e-05
+📈 Iter 2400 | Train Loss: 1.084697 | LR: 5.000e-05
+🔎 train mask debug iter=2500 reduce=mean mask_mean=0.9282 mask_gt_0.5=1.0000
+📈 Iter 2500 | Train Loss: 1.074715 | LR: 5.000e-05
+📌 Val Iter 2500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=2500 idx=0 psnr=13.0629 gt_mean=0.5022 pred_mean=0.4914 path=None
+🔎 Val sample debug | iter=2500 idx=1 psnr=12.0769 gt_mean=0.4989 pred_mean=0.4836 path=None
+🔎 Val sample debug | iter=2500 idx=2 psnr=12.2764 gt_mean=0.4761 pred_mean=0.4812 path=None
+🔎 Val sample debug | iter=2500 idx=3 psnr=14.8221 gt_mean=0.4867 pred_mean=0.4856 path=None
+🔎 Val sample debug | iter=2500 idx=4 psnr=12.6819 gt_mean=0.4746 pred_mean=0.4815 path=None
+🔎 Val sample debug | iter=2500 idx=5 psnr=15.0145 gt_mean=0.4788 pred_mean=0.4870 path=None
+🔎 Val sample debug | iter=2500 idx=6 psnr=14.0655 gt_mean=0.5188 pred_mean=0.4888 path=None
+🔎 Val sample debug | iter=2500 idx=7 psnr=12.8906 gt_mean=0.5119 pred_mean=0.4902 path=None
+📌 Val Iter 2500:  12%|█▎        | 1/8 [00:00<00:04,  1.70it/s]📌 Val Iter 2500:  50%|█████     | 4/8 [00:00<00:00,  6.85it/s]📌 Val Iter 2500:  88%|████████▊ | 7/8 [00:00<00:00, 11.06it/s]📌 Val Iter 2500: 100%|██████████| 8/8 [00:00<00:00,  9.02it/s]
+📊 Validation Metrics | PSNR: 13.7687 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 13.7688
+🔎 Validation PSNR spread | min=11.6901 median=13.9280 max=15.4220 n=64
+🔎 Validation per-band PSNR mean | b0:13.60, b1:12.90, b2:15.53, b3:14.05, b4:12.39, b5:14.34, b6:13.95, b7:13.59, b8:13.28, b9:14.27, b10:13.67, b11:13.64, b12:12.62, b13:14.02, b14:13.18, b15:12.89, ...
+⏱️ Validation timing | data_wait=0.19s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.35s total=0.89s
+🏆 New best metric: 13.7687 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_2500.pth
+📈 Iter 2600 | Train Loss: 1.112689 | LR: 5.000e-05
+📈 Iter 2700 | Train Loss: 1.010894 | LR: 5.000e-05
+📈 Iter 2800 | Train Loss: 1.019207 | LR: 5.000e-05
+📈 Iter 2900 | Train Loss: 1.048978 | LR: 5.000e-05
+🔎 train mask debug iter=3000 reduce=mean mask_mean=0.9150 mask_gt_0.5=1.0000
+📈 Iter 3000 | Train Loss: 1.054182 | LR: 5.000e-05
+📌 Val Iter 3000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=3000 idx=0 psnr=13.2595 gt_mean=0.5022 pred_mean=0.4934 path=None
+🔎 Val sample debug | iter=3000 idx=1 psnr=12.6135 gt_mean=0.4989 pred_mean=0.4859 path=None
+🔎 Val sample debug | iter=3000 idx=2 psnr=12.6039 gt_mean=0.4761 pred_mean=0.4804 path=None
+🔎 Val sample debug | iter=3000 idx=3 psnr=14.9419 gt_mean=0.4867 pred_mean=0.4835 path=None
+🔎 Val sample debug | iter=3000 idx=4 psnr=12.8582 gt_mean=0.4746 pred_mean=0.4833 path=None
+🔎 Val sample debug | iter=3000 idx=5 psnr=14.7130 gt_mean=0.4788 pred_mean=0.4840 path=None
+🔎 Val sample debug | iter=3000 idx=6 psnr=14.1084 gt_mean=0.5188 pred_mean=0.4915 path=None
+🔎 Val sample debug | iter=3000 idx=7 psnr=12.8645 gt_mean=0.5119 pred_mean=0.4933 path=None
+📌 Val Iter 3000:  12%|█▎        | 1/8 [00:00<00:03,  1.80it/s]📌 Val Iter 3000:  50%|█████     | 4/8 [00:00<00:00,  7.16it/s]📌 Val Iter 3000:  88%|████████▊ | 7/8 [00:00<00:00, 11.42it/s]📌 Val Iter 3000: 100%|██████████| 8/8 [00:00<00:00,  9.37it/s]
+📊 Validation Metrics | PSNR: 13.8231 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 13.8233
+🔎 Validation PSNR spread | min=11.8390 median=13.9661 max=15.5434 n=64
+🔎 Validation per-band PSNR mean | b0:13.70, b1:12.43, b2:15.39, b3:13.90, b4:12.21, b5:14.30, b6:13.99, b7:13.38, b8:13.41, b9:14.49, b10:13.44, b11:13.76, b12:12.38, b13:14.44, b14:13.17, b15:12.96, ...
+⏱️ Validation timing | data_wait=0.15s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.36s total=0.85s
+🏆 New best metric: 13.8231 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_3000.pth
+📈 Iter 3100 | Train Loss: 0.934715 | LR: 5.000e-05
+📈 Iter 3200 | Train Loss: 1.067031 | LR: 5.000e-05
+📈 Iter 3300 | Train Loss: 0.971543 | LR: 5.000e-05
+📈 Iter 3400 | Train Loss: 1.041937 | LR: 5.000e-05
+🔎 train mask debug iter=3500 reduce=mean mask_mean=0.9347 mask_gt_0.5=1.0000
+📈 Iter 3500 | Train Loss: 1.026283 | LR: 5.000e-05
+📌 Val Iter 3500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=3500 idx=0 psnr=13.1609 gt_mean=0.5022 pred_mean=0.4950 path=None
+🔎 Val sample debug | iter=3500 idx=1 psnr=12.6293 gt_mean=0.4989 pred_mean=0.4923 path=None
+🔎 Val sample debug | iter=3500 idx=2 psnr=12.3072 gt_mean=0.4761 pred_mean=0.4855 path=None
+🔎 Val sample debug | iter=3500 idx=3 psnr=15.1838 gt_mean=0.4867 pred_mean=0.4938 path=None
+🔎 Val sample debug | iter=3500 idx=4 psnr=12.5509 gt_mean=0.4746 pred_mean=0.4815 path=None
+🔎 Val sample debug | iter=3500 idx=5 psnr=14.8915 gt_mean=0.4788 pred_mean=0.4932 path=None
+🔎 Val sample debug | iter=3500 idx=6 psnr=14.0372 gt_mean=0.5188 pred_mean=0.4950 path=None
+🔎 Val sample debug | iter=3500 idx=7 psnr=12.8602 gt_mean=0.5119 pred_mean=0.4908 path=None
+📌 Val Iter 3500:  12%|█▎        | 1/8 [00:00<00:04,  1.57it/s]📌 Val Iter 3500:  50%|█████     | 4/8 [00:00<00:00,  6.44it/s]📌 Val Iter 3500:  88%|████████▊ | 7/8 [00:00<00:00, 10.56it/s]📌 Val Iter 3500: 100%|██████████| 8/8 [00:00<00:00,  8.55it/s]
+📊 Validation Metrics | PSNR: 13.8919 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 13.8921
+🔎 Validation PSNR spread | min=12.0214 median=14.0687 max=15.7460 n=64
+🔎 Validation per-band PSNR mean | b0:13.46, b1:13.10, b2:15.33, b3:14.11, b4:12.45, b5:14.42, b6:13.96, b7:13.95, b8:13.51, b9:14.42, b10:13.80, b11:13.79, b12:12.60, b13:14.49, b14:13.19, b15:12.94, ...
+⏱️ Validation timing | data_wait=0.24s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.93s
+🏆 New best metric: 13.8919 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_3500.pth
+📈 Iter 3600 | Train Loss: 1.031592 | LR: 5.000e-05
+📈 Iter 3700 | Train Loss: 0.974016 | LR: 5.000e-05
+📈 Iter 3800 | Train Loss: 1.096644 | LR: 5.000e-05
+📈 Iter 3900 | Train Loss: 1.080737 | LR: 5.000e-05
+🔎 train mask debug iter=4000 reduce=mean mask_mean=0.9205 mask_gt_0.5=1.0000
+📈 Iter 4000 | Train Loss: 1.010818 | LR: 5.000e-05
+📌 Val Iter 4000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=4000 idx=0 psnr=13.2898 gt_mean=0.5022 pred_mean=0.4957 path=None
+🔎 Val sample debug | iter=4000 idx=1 psnr=12.8294 gt_mean=0.4989 pred_mean=0.4924 path=None
+🔎 Val sample debug | iter=4000 idx=2 psnr=12.4718 gt_mean=0.4761 pred_mean=0.4855 path=None
+🔎 Val sample debug | iter=4000 idx=3 psnr=14.9751 gt_mean=0.4867 pred_mean=0.4898 path=None
+🔎 Val sample debug | iter=4000 idx=4 psnr=12.7215 gt_mean=0.4746 pred_mean=0.4856 path=None
+🔎 Val sample debug | iter=4000 idx=5 psnr=15.1663 gt_mean=0.4788 pred_mean=0.4876 path=None
+🔎 Val sample debug | iter=4000 idx=6 psnr=14.1104 gt_mean=0.5188 pred_mean=0.4946 path=None
+🔎 Val sample debug | iter=4000 idx=7 psnr=12.9969 gt_mean=0.5119 pred_mean=0.4947 path=None
+📌 Val Iter 4000:  12%|█▎        | 1/8 [00:00<00:03,  1.80it/s]📌 Val Iter 4000:  50%|█████     | 4/8 [00:00<00:00,  7.15it/s]📌 Val Iter 4000:  88%|████████▊ | 7/8 [00:00<00:00, 11.42it/s]📌 Val Iter 4000: 100%|██████████| 8/8 [00:00<00:00,  9.36it/s]
+📊 Validation Metrics | PSNR: 13.9319 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 13.9321
+🔎 Validation PSNR spread | min=11.9245 median=14.0383 max=15.4945 n=64
+🔎 Validation per-band PSNR mean | b0:13.48, b1:12.88, b2:15.58, b3:14.17, b4:12.52, b5:14.42, b6:14.05, b7:13.68, b8:13.58, b9:14.39, b10:13.73, b11:13.78, b12:12.87, b13:14.52, b14:13.15, b15:12.98, ...
+⏱️ Validation timing | data_wait=0.16s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.35s total=0.85s
+🏆 New best metric: 13.9319 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_4000.pth
+📈 Iter 4100 | Train Loss: 1.078822 | LR: 5.000e-05
+📈 Iter 4200 | Train Loss: 0.929064 | LR: 5.000e-05
+📈 Iter 4300 | Train Loss: 1.070432 | LR: 5.000e-05
+📈 Iter 4400 | Train Loss: 1.055647 | LR: 5.000e-05
+🔎 train mask debug iter=4500 reduce=mean mask_mean=0.9146 mask_gt_0.5=1.0000
+📈 Iter 4500 | Train Loss: 0.997556 | LR: 5.000e-05
+📌 Val Iter 4500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=4500 idx=0 psnr=13.2729 gt_mean=0.5022 pred_mean=0.4948 path=None
+🔎 Val sample debug | iter=4500 idx=1 psnr=12.9762 gt_mean=0.4989 pred_mean=0.4912 path=None
+🔎 Val sample debug | iter=4500 idx=2 psnr=12.6055 gt_mean=0.4761 pred_mean=0.4872 path=None
+🔎 Val sample debug | iter=4500 idx=3 psnr=15.2533 gt_mean=0.4867 pred_mean=0.4873 path=None
+🔎 Val sample debug | iter=4500 idx=4 psnr=12.7329 gt_mean=0.4746 pred_mean=0.4826 path=None
+🔎 Val sample debug | iter=4500 idx=5 psnr=15.4200 gt_mean=0.4788 pred_mean=0.4848 path=None
+🔎 Val sample debug | iter=4500 idx=6 psnr=14.1708 gt_mean=0.5188 pred_mean=0.4947 path=None
+🔎 Val sample debug | iter=4500 idx=7 psnr=12.7446 gt_mean=0.5119 pred_mean=0.4921 path=None
+📌 Val Iter 4500:  12%|█▎        | 1/8 [00:00<00:03,  1.87it/s]📌 Val Iter 4500:  50%|█████     | 4/8 [00:00<00:00,  7.35it/s]📌 Val Iter 4500:  88%|████████▊ | 7/8 [00:00<00:00, 11.65it/s]📌 Val Iter 4500: 100%|██████████| 8/8 [00:00<00:00,  9.59it/s]
+📊 Validation Metrics | PSNR: 13.9541 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 13.9543
+🔎 Validation PSNR spread | min=11.8105 median=14.0221 max=16.0212 n=64
+🔎 Validation per-band PSNR mean | b0:13.64, b1:13.08, b2:15.64, b3:14.09, b4:12.34, b5:14.37, b6:14.07, b7:14.06, b8:13.52, b9:14.60, b10:13.74, b11:13.79, b12:12.68, b13:14.63, b14:13.31, b15:12.78, ...
+⏱️ Validation timing | data_wait=0.12s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.37s total=0.83s
+🏆 New best metric: 13.9541 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_4500.pth
+📈 Iter 4600 | Train Loss: 0.990738 | LR: 5.000e-05
+📈 Iter 4700 | Train Loss: 0.950825 | LR: 5.000e-05
+📈 Iter 4800 | Train Loss: 1.087731 | LR: 5.000e-05
+📈 Iter 4900 | Train Loss: 0.971758 | LR: 5.000e-05
+🔎 train mask debug iter=5000 reduce=mean mask_mean=0.9469 mask_gt_0.5=1.0000
+📈 Iter 5000 | Train Loss: 0.995239 | LR: 5.000e-05
+📌 Val Iter 5000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=5000 idx=0 psnr=13.5315 gt_mean=0.5022 pred_mean=0.4999 path=None
+🔎 Val sample debug | iter=5000 idx=1 psnr=12.7882 gt_mean=0.4989 pred_mean=0.4854 path=None
+🔎 Val sample debug | iter=5000 idx=2 psnr=12.5317 gt_mean=0.4761 pred_mean=0.4801 path=None
+🔎 Val sample debug | iter=5000 idx=3 psnr=15.3587 gt_mean=0.4867 pred_mean=0.4891 path=None
+🔎 Val sample debug | iter=5000 idx=4 psnr=12.7327 gt_mean=0.4746 pred_mean=0.4830 path=None
+🔎 Val sample debug | iter=5000 idx=5 psnr=14.8886 gt_mean=0.4788 pred_mean=0.4890 path=None
+🔎 Val sample debug | iter=5000 idx=6 psnr=14.0929 gt_mean=0.5188 pred_mean=0.4947 path=None
+🔎 Val sample debug | iter=5000 idx=7 psnr=13.0040 gt_mean=0.5119 pred_mean=0.4943 path=None
+📌 Val Iter 5000:  12%|█▎        | 1/8 [00:00<00:04,  1.66it/s]📌 Val Iter 5000:  50%|█████     | 4/8 [00:00<00:00,  6.75it/s]📌 Val Iter 5000:  88%|████████▊ | 7/8 [00:00<00:00, 10.93it/s]📌 Val Iter 5000: 100%|██████████| 8/8 [00:00<00:00,  8.90it/s]
+📊 Validation Metrics | PSNR: 14.0515 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.0517
+🔎 Validation PSNR spread | min=11.9249 median=14.1686 max=15.8744 n=64
+🔎 Validation per-band PSNR mean | b0:13.89, b1:13.14, b2:15.65, b3:14.13, b4:12.51, b5:14.68, b6:14.06, b7:14.13, b8:13.61, b9:14.62, b10:13.92, b11:13.93, b12:12.86, b13:14.63, b14:13.29, b15:12.80, ...
+⏱️ Validation timing | data_wait=0.21s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.35s total=0.90s
+🏆 New best metric: 14.0515 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_5000.pth
+📈 Iter 5100 | Train Loss: 0.972004 | LR: 5.000e-05
+📈 Iter 5200 | Train Loss: 1.008348 | LR: 5.000e-05
+📈 Iter 5300 | Train Loss: 1.020496 | LR: 5.000e-05
+📈 Iter 5400 | Train Loss: 0.995717 | LR: 5.000e-05
+🔎 train mask debug iter=5500 reduce=mean mask_mean=0.9312 mask_gt_0.5=1.0000
+📈 Iter 5500 | Train Loss: 0.933183 | LR: 5.000e-05
+📌 Val Iter 5500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=5500 idx=0 psnr=13.2970 gt_mean=0.5022 pred_mean=0.4988 path=None
+🔎 Val sample debug | iter=5500 idx=1 psnr=12.7863 gt_mean=0.4989 pred_mean=0.4877 path=None
+🔎 Val sample debug | iter=5500 idx=2 psnr=12.4594 gt_mean=0.4761 pred_mean=0.4869 path=None
+🔎 Val sample debug | iter=5500 idx=3 psnr=15.1909 gt_mean=0.4867 pred_mean=0.4920 path=None
+🔎 Val sample debug | iter=5500 idx=4 psnr=12.4031 gt_mean=0.4746 pred_mean=0.4837 path=None
+🔎 Val sample debug | iter=5500 idx=5 psnr=15.3027 gt_mean=0.4788 pred_mean=0.4886 path=None
+🔎 Val sample debug | iter=5500 idx=6 psnr=14.2130 gt_mean=0.5188 pred_mean=0.4964 path=None
+🔎 Val sample debug | iter=5500 idx=7 psnr=13.0752 gt_mean=0.5119 pred_mean=0.4961 path=None
+📌 Val Iter 5500:  12%|█▎        | 1/8 [00:00<00:04,  1.68it/s]📌 Val Iter 5500:  50%|█████     | 4/8 [00:00<00:00,  6.80it/s]📌 Val Iter 5500:  88%|████████▊ | 7/8 [00:00<00:00, 11.00it/s]📌 Val Iter 5500: 100%|██████████| 8/8 [00:00<00:00,  8.96it/s]
+📊 Validation Metrics | PSNR: 14.0140 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.0142
+🔎 Validation PSNR spread | min=11.7025 median=14.1761 max=16.2027 n=64
+🔎 Validation per-band PSNR mean | b0:13.77, b1:13.18, b2:15.68, b3:14.35, b4:12.70, b5:14.31, b6:13.98, b7:14.19, b8:13.32, b9:14.43, b10:13.92, b11:13.66, b12:12.54, b13:14.70, b14:13.27, b15:12.97, ...
+⏱️ Validation timing | data_wait=0.20s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.35s total=0.89s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_5500.pth
+📈 Iter 5600 | Train Loss: 0.978775 | LR: 5.000e-05
+📈 Iter 5700 | Train Loss: 0.951197 | LR: 5.000e-05
+📈 Iter 5800 | Train Loss: 0.919963 | LR: 5.000e-05
+📈 Iter 5900 | Train Loss: 0.993192 | LR: 5.000e-05
+🔎 train mask debug iter=6000 reduce=mean mask_mean=0.8793 mask_gt_0.5=1.0000
+📈 Iter 6000 | Train Loss: 1.072811 | LR: 5.000e-05
+📌 Val Iter 6000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=6000 idx=0 psnr=13.2242 gt_mean=0.5022 pred_mean=0.5024 path=None
+🔎 Val sample debug | iter=6000 idx=1 psnr=12.8409 gt_mean=0.4989 pred_mean=0.4879 path=None
+🔎 Val sample debug | iter=6000 idx=2 psnr=12.5253 gt_mean=0.4761 pred_mean=0.4791 path=None
+🔎 Val sample debug | iter=6000 idx=3 psnr=15.4836 gt_mean=0.4867 pred_mean=0.4899 path=None
+🔎 Val sample debug | iter=6000 idx=4 psnr=12.6334 gt_mean=0.4746 pred_mean=0.4894 path=None
+🔎 Val sample debug | iter=6000 idx=5 psnr=15.3058 gt_mean=0.4788 pred_mean=0.4866 path=None
+🔎 Val sample debug | iter=6000 idx=6 psnr=14.2106 gt_mean=0.5188 pred_mean=0.4974 path=None
+🔎 Val sample debug | iter=6000 idx=7 psnr=12.7135 gt_mean=0.5119 pred_mean=0.5009 path=None
+📌 Val Iter 6000:  12%|█▎        | 1/8 [00:00<00:04,  1.65it/s]📌 Val Iter 6000:  50%|█████     | 4/8 [00:00<00:00,  6.68it/s]📌 Val Iter 6000:  88%|████████▊ | 7/8 [00:00<00:00, 10.85it/s]📌 Val Iter 6000: 100%|██████████| 8/8 [00:00<00:00,  8.83it/s]
+📊 Validation Metrics | PSNR: 14.0596 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.0598
+🔎 Validation PSNR spread | min=11.7584 median=14.1924 max=15.8420 n=64
+🔎 Validation per-band PSNR mean | b0:13.73, b1:12.98, b2:15.63, b3:14.39, b4:12.54, b5:14.70, b6:14.26, b7:14.29, b8:13.60, b9:14.46, b10:13.84, b11:13.99, b12:12.90, b13:14.58, b14:13.13, b15:12.96, ...
+⏱️ Validation timing | data_wait=0.20s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.36s total=0.90s
+🏆 New best metric: 14.0596 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_6000.pth
+📈 Iter 6100 | Train Loss: 0.987793 | LR: 5.000e-05
+📈 Iter 6200 | Train Loss: 1.088803 | LR: 5.000e-05
+📈 Iter 6300 | Train Loss: 1.030488 | LR: 5.000e-05
+📈 Iter 6400 | Train Loss: 1.081028 | LR: 5.000e-05
+🔎 train mask debug iter=6500 reduce=mean mask_mean=0.9120 mask_gt_0.5=1.0000
+📈 Iter 6500 | Train Loss: 1.005216 | LR: 5.000e-05
+📌 Val Iter 6500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=6500 idx=0 psnr=13.4514 gt_mean=0.5022 pred_mean=0.5053 path=None
+🔎 Val sample debug | iter=6500 idx=1 psnr=12.8917 gt_mean=0.4989 pred_mean=0.4901 path=None
+🔎 Val sample debug | iter=6500 idx=2 psnr=12.4768 gt_mean=0.4761 pred_mean=0.4810 path=None
+🔎 Val sample debug | iter=6500 idx=3 psnr=15.4850 gt_mean=0.4867 pred_mean=0.4941 path=None
+🔎 Val sample debug | iter=6500 idx=4 psnr=12.7325 gt_mean=0.4746 pred_mean=0.4915 path=None
+🔎 Val sample debug | iter=6500 idx=5 psnr=15.2864 gt_mean=0.4788 pred_mean=0.4901 path=None
+🔎 Val sample debug | iter=6500 idx=6 psnr=14.3280 gt_mean=0.5188 pred_mean=0.5030 path=None
+🔎 Val sample debug | iter=6500 idx=7 psnr=13.1481 gt_mean=0.5119 pred_mean=0.4983 path=None
+📌 Val Iter 6500:  12%|█▎        | 1/8 [00:00<00:05,  1.23it/s]📌 Val Iter 6500:  50%|█████     | 4/8 [00:00<00:00,  5.30it/s]📌 Val Iter 6500:  88%|████████▊ | 7/8 [00:01<00:00,  9.07it/s]📌 Val Iter 6500: 100%|██████████| 8/8 [00:01<00:00,  7.19it/s]
+📊 Validation Metrics | PSNR: 14.0994 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.0996
+🔎 Validation PSNR spread | min=12.0170 median=14.2575 max=15.9038 n=64
+🔎 Validation per-band PSNR mean | b0:13.77, b1:13.05, b2:15.54, b3:14.48, b4:12.48, b5:14.65, b6:14.16, b7:14.13, b8:13.62, b9:14.65, b10:14.10, b11:13.98, b12:12.67, b13:14.73, b14:13.32, b15:12.93, ...
+⏱️ Validation timing | data_wait=0.23s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.54s total=1.11s
+🏆 New best metric: 14.0994 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_6500.pth
+📈 Iter 6600 | Train Loss: 1.001581 | LR: 5.000e-05
+📈 Iter 6700 | Train Loss: 0.989637 | LR: 5.000e-05
+📈 Iter 6800 | Train Loss: 0.982048 | LR: 5.000e-05
+📈 Iter 6900 | Train Loss: 1.004788 | LR: 5.000e-05
+🔎 train mask debug iter=7000 reduce=mean mask_mean=0.8678 mask_gt_0.5=0.9998
+📈 Iter 7000 | Train Loss: 1.104374 | LR: 5.000e-05
+📌 Val Iter 7000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=7000 idx=0 psnr=13.2460 gt_mean=0.5022 pred_mean=0.5019 path=None
+🔎 Val sample debug | iter=7000 idx=1 psnr=12.8601 gt_mean=0.4989 pred_mean=0.4878 path=None
+🔎 Val sample debug | iter=7000 idx=2 psnr=12.5709 gt_mean=0.4761 pred_mean=0.4774 path=None
+🔎 Val sample debug | iter=7000 idx=3 psnr=15.3311 gt_mean=0.4867 pred_mean=0.4892 path=None
+🔎 Val sample debug | iter=7000 idx=4 psnr=12.7463 gt_mean=0.4746 pred_mean=0.4835 path=None
+🔎 Val sample debug | iter=7000 idx=5 psnr=14.8595 gt_mean=0.4788 pred_mean=0.4852 path=None
+🔎 Val sample debug | iter=7000 idx=6 psnr=14.3144 gt_mean=0.5188 pred_mean=0.4964 path=None
+🔎 Val sample debug | iter=7000 idx=7 psnr=13.1248 gt_mean=0.5119 pred_mean=0.4985 path=None
+📌 Val Iter 7000:  12%|█▎        | 1/8 [00:00<00:04,  1.66it/s]📌 Val Iter 7000:  50%|█████     | 4/8 [00:00<00:00,  6.73it/s]📌 Val Iter 7000:  88%|████████▊ | 7/8 [00:00<00:00, 10.92it/s]📌 Val Iter 7000: 100%|██████████| 8/8 [00:00<00:00,  8.89it/s]
+📊 Validation Metrics | PSNR: 14.0801 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.0803
+🔎 Validation PSNR spread | min=11.9158 median=14.2599 max=15.9245 n=64
+🔎 Validation per-band PSNR mean | b0:13.84, b1:12.76, b2:15.72, b3:14.33, b4:12.53, b5:14.82, b6:14.18, b7:13.97, b8:13.60, b9:14.53, b10:13.86, b11:14.04, b12:13.08, b13:14.61, b14:13.23, b15:12.95, ...
+⏱️ Validation timing | data_wait=0.20s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.90s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_7000.pth
+📈 Iter 7100 | Train Loss: 0.981265 | LR: 5.000e-05
+📈 Iter 7200 | Train Loss: 0.976850 | LR: 5.000e-05
+📈 Iter 7300 | Train Loss: 1.055293 | LR: 5.000e-05
+📈 Iter 7400 | Train Loss: 1.007395 | LR: 5.000e-05
+🔎 train mask debug iter=7500 reduce=mean mask_mean=0.8939 mask_gt_0.5=1.0000
+📈 Iter 7500 | Train Loss: 0.959918 | LR: 5.000e-05
+📌 Val Iter 7500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=7500 idx=0 psnr=13.2577 gt_mean=0.5022 pred_mean=0.5007 path=None
+🔎 Val sample debug | iter=7500 idx=1 psnr=12.9890 gt_mean=0.4989 pred_mean=0.4949 path=None
+🔎 Val sample debug | iter=7500 idx=2 psnr=12.5694 gt_mean=0.4761 pred_mean=0.4815 path=None
+🔎 Val sample debug | iter=7500 idx=3 psnr=15.1810 gt_mean=0.4867 pred_mean=0.4917 path=None
+🔎 Val sample debug | iter=7500 idx=4 psnr=12.6615 gt_mean=0.4746 pred_mean=0.4863 path=None
+🔎 Val sample debug | iter=7500 idx=5 psnr=15.4082 gt_mean=0.4788 pred_mean=0.4877 path=None
+🔎 Val sample debug | iter=7500 idx=6 psnr=14.4037 gt_mean=0.5188 pred_mean=0.4985 path=None
+🔎 Val sample debug | iter=7500 idx=7 psnr=13.0249 gt_mean=0.5119 pred_mean=0.4963 path=None
+📌 Val Iter 7500:  12%|█▎        | 1/8 [00:00<00:03,  1.78it/s]📌 Val Iter 7500:  50%|█████     | 4/8 [00:00<00:00,  7.10it/s]📌 Val Iter 7500:  88%|████████▊ | 7/8 [00:00<00:00, 11.36it/s]📌 Val Iter 7500: 100%|██████████| 8/8 [00:00<00:00,  9.31it/s]
+📊 Validation Metrics | PSNR: 14.0732 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.0733
+🔎 Validation PSNR spread | min=12.0840 median=14.2615 max=15.7844 n=64
+🔎 Validation per-band PSNR mean | b0:13.72, b1:13.16, b2:15.59, b3:14.43, b4:12.66, b5:14.57, b6:14.08, b7:14.17, b8:13.51, b9:14.60, b10:14.06, b11:14.04, b12:12.96, b13:14.57, b14:13.36, b15:12.92, ...
+⏱️ Validation timing | data_wait=0.16s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.86s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_7500.pth
+📈 Iter 7600 | Train Loss: 0.987061 | LR: 5.000e-05
+📈 Iter 7700 | Train Loss: 0.981878 | LR: 5.000e-05
+📈 Iter 7800 | Train Loss: 0.967400 | LR: 5.000e-05
+📈 Iter 7900 | Train Loss: 0.927389 | LR: 5.000e-05
+🔎 train mask debug iter=8000 reduce=mean mask_mean=0.9620 mask_gt_0.5=1.0000
+📈 Iter 8000 | Train Loss: 0.971287 | LR: 5.000e-05
+📌 Val Iter 8000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=8000 idx=0 psnr=13.0459 gt_mean=0.5022 pred_mean=0.4974 path=None
+🔎 Val sample debug | iter=8000 idx=1 psnr=12.9200 gt_mean=0.4989 pred_mean=0.4869 path=None
+🔎 Val sample debug | iter=8000 idx=2 psnr=12.6240 gt_mean=0.4761 pred_mean=0.4828 path=None
+🔎 Val sample debug | iter=8000 idx=3 psnr=15.1055 gt_mean=0.4867 pred_mean=0.4927 path=None
+🔎 Val sample debug | iter=8000 idx=4 psnr=12.5994 gt_mean=0.4746 pred_mean=0.4856 path=None
+🔎 Val sample debug | iter=8000 idx=5 psnr=15.5852 gt_mean=0.4788 pred_mean=0.4854 path=None
+🔎 Val sample debug | iter=8000 idx=6 psnr=14.4661 gt_mean=0.5188 pred_mean=0.4958 path=None
+🔎 Val sample debug | iter=8000 idx=7 psnr=12.8098 gt_mean=0.5119 pred_mean=0.4973 path=None
+📌 Val Iter 8000:  12%|█▎        | 1/8 [00:00<00:03,  1.93it/s]📌 Val Iter 8000:  50%|█████     | 4/8 [00:00<00:00,  7.53it/s]📌 Val Iter 8000:  88%|████████▊ | 7/8 [00:00<00:00, 11.86it/s]📌 Val Iter 8000: 100%|██████████| 8/8 [00:00<00:00,  9.79it/s]
+📊 Validation Metrics | PSNR: 14.0949 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.0950
+🔎 Validation PSNR spread | min=11.7991 median=14.2236 max=16.1854 n=64
+🔎 Validation per-band PSNR mean | b0:13.85, b1:13.05, b2:15.42, b3:14.51, b4:12.55, b5:14.88, b6:14.24, b7:14.30, b8:13.62, b9:14.67, b10:14.13, b11:13.93, b12:13.13, b13:14.67, b14:13.23, b15:12.87, ...
+⏱️ Validation timing | data_wait=0.11s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.36s total=0.82s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_8000.pth
+📈 Iter 8100 | Train Loss: 0.992134 | LR: 2.500e-05
+📈 Iter 8200 | Train Loss: 0.927941 | LR: 2.500e-05
+📈 Iter 8300 | Train Loss: 1.067261 | LR: 2.500e-05
+📈 Iter 8400 | Train Loss: 0.955589 | LR: 2.500e-05
+🔎 train mask debug iter=8500 reduce=mean mask_mean=0.9051 mask_gt_0.5=1.0000
+📈 Iter 8500 | Train Loss: 0.998185 | LR: 2.500e-05
+📌 Val Iter 8500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=8500 idx=0 psnr=13.3716 gt_mean=0.5022 pred_mean=0.5008 path=None
+🔎 Val sample debug | iter=8500 idx=1 psnr=12.9835 gt_mean=0.4989 pred_mean=0.4905 path=None
+🔎 Val sample debug | iter=8500 idx=2 psnr=12.6804 gt_mean=0.4761 pred_mean=0.4811 path=None
+🔎 Val sample debug | iter=8500 idx=3 psnr=15.5707 gt_mean=0.4867 pred_mean=0.4940 path=None
+🔎 Val sample debug | iter=8500 idx=4 psnr=12.7816 gt_mean=0.4746 pred_mean=0.4811 path=None
+🔎 Val sample debug | iter=8500 idx=5 psnr=15.4707 gt_mean=0.4788 pred_mean=0.4863 path=None
+🔎 Val sample debug | iter=8500 idx=6 psnr=14.4681 gt_mean=0.5188 pred_mean=0.4980 path=None
+🔎 Val sample debug | iter=8500 idx=7 psnr=13.0816 gt_mean=0.5119 pred_mean=0.4975 path=None
+📌 Val Iter 8500:  12%|█▎        | 1/8 [00:00<00:03,  1.91it/s]📌 Val Iter 8500:  50%|█████     | 4/8 [00:00<00:00,  7.47it/s]📌 Val Iter 8500:  88%|████████▊ | 7/8 [00:00<00:00, 11.79it/s]📌 Val Iter 8500: 100%|██████████| 8/8 [00:00<00:00,  9.72it/s]
+📊 Validation Metrics | PSNR: 14.1628 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.1629
+🔎 Validation PSNR spread | min=12.1170 median=14.3260 max=15.8497 n=64
+🔎 Validation per-band PSNR mean | b0:13.73, b1:13.15, b2:15.63, b3:14.55, b4:12.58, b5:14.77, b6:14.15, b7:14.24, b8:13.60, b9:14.66, b10:14.13, b11:14.02, b12:13.17, b13:14.74, b14:13.36, b15:12.91, ...
+⏱️ Validation timing | data_wait=0.12s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.82s
+🏆 New best metric: 14.1628 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_8500.pth
+📈 Iter 8600 | Train Loss: 0.970480 | LR: 2.500e-05
+📈 Iter 8700 | Train Loss: 0.892159 | LR: 2.500e-05
+📈 Iter 8800 | Train Loss: 0.955858 | LR: 2.500e-05
+📈 Iter 8900 | Train Loss: 0.965309 | LR: 2.500e-05
+🔎 train mask debug iter=9000 reduce=mean mask_mean=0.9311 mask_gt_0.5=1.0000
+📈 Iter 9000 | Train Loss: 0.993004 | LR: 2.500e-05
+📌 Val Iter 9000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=9000 idx=0 psnr=13.3122 gt_mean=0.5022 pred_mean=0.4988 path=None
+🔎 Val sample debug | iter=9000 idx=1 psnr=13.1202 gt_mean=0.4989 pred_mean=0.4908 path=None
+🔎 Val sample debug | iter=9000 idx=2 psnr=12.7369 gt_mean=0.4761 pred_mean=0.4799 path=None
+🔎 Val sample debug | iter=9000 idx=3 psnr=15.5197 gt_mean=0.4867 pred_mean=0.4945 path=None
+🔎 Val sample debug | iter=9000 idx=4 psnr=12.7277 gt_mean=0.4746 pred_mean=0.4796 path=None
+🔎 Val sample debug | iter=9000 idx=5 psnr=15.4418 gt_mean=0.4788 pred_mean=0.4843 path=None
+🔎 Val sample debug | iter=9000 idx=6 psnr=14.3585 gt_mean=0.5188 pred_mean=0.4954 path=None
+🔎 Val sample debug | iter=9000 idx=7 psnr=12.9969 gt_mean=0.5119 pred_mean=0.4972 path=None
+📌 Val Iter 9000:  12%|█▎        | 1/8 [00:00<00:03,  1.91it/s]📌 Val Iter 9000:  50%|█████     | 4/8 [00:00<00:00,  7.48it/s]📌 Val Iter 9000:  88%|████████▊ | 7/8 [00:00<00:00, 11.80it/s]📌 Val Iter 9000: 100%|██████████| 8/8 [00:00<00:00,  9.74it/s]
+📊 Validation Metrics | PSNR: 14.1578 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.1579
+🔎 Validation PSNR spread | min=12.0525 median=14.3120 max=16.3176 n=64
+🔎 Validation per-band PSNR mean | b0:13.91, b1:13.27, b2:15.68, b3:14.50, b4:12.70, b5:14.77, b6:14.18, b7:14.25, b8:13.59, b9:14.42, b10:14.15, b11:14.00, b12:13.14, b13:14.84, b14:13.28, b15:12.98, ...
+⏱️ Validation timing | data_wait=0.12s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.82s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_9000.pth
+📈 Iter 9100 | Train Loss: 0.936888 | LR: 2.500e-05
+📈 Iter 9200 | Train Loss: 1.003597 | LR: 2.500e-05
+📈 Iter 9300 | Train Loss: 0.926817 | LR: 2.500e-05
+📈 Iter 9400 | Train Loss: 0.899954 | LR: 2.500e-05
+🔎 train mask debug iter=9500 reduce=mean mask_mean=0.9047 mask_gt_0.5=0.9999
+📈 Iter 9500 | Train Loss: 1.078446 | LR: 2.500e-05
+📌 Val Iter 9500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=9500 idx=0 psnr=13.3861 gt_mean=0.5022 pred_mean=0.5039 path=None
+🔎 Val sample debug | iter=9500 idx=1 psnr=13.1112 gt_mean=0.4989 pred_mean=0.4922 path=None
+🔎 Val sample debug | iter=9500 idx=2 psnr=12.6528 gt_mean=0.4761 pred_mean=0.4843 path=None
+🔎 Val sample debug | iter=9500 idx=3 psnr=15.2464 gt_mean=0.4867 pred_mean=0.4967 path=None
+🔎 Val sample debug | iter=9500 idx=4 psnr=12.6672 gt_mean=0.4746 pred_mean=0.4837 path=None
+🔎 Val sample debug | iter=9500 idx=5 psnr=15.2952 gt_mean=0.4788 pred_mean=0.4897 path=None
+🔎 Val sample debug | iter=9500 idx=6 psnr=14.4953 gt_mean=0.5188 pred_mean=0.5002 path=None
+🔎 Val sample debug | iter=9500 idx=7 psnr=13.1181 gt_mean=0.5119 pred_mean=0.5001 path=None
+📌 Val Iter 9500:  12%|█▎        | 1/8 [00:00<00:04,  1.71it/s]📌 Val Iter 9500:  50%|█████     | 4/8 [00:00<00:00,  6.87it/s]📌 Val Iter 9500:  88%|████████▊ | 7/8 [00:00<00:00, 11.09it/s]📌 Val Iter 9500: 100%|██████████| 8/8 [00:00<00:00,  9.05it/s]
+📊 Validation Metrics | PSNR: 14.1596 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.1598
+🔎 Validation PSNR spread | min=12.1678 median=14.3006 max=15.9930 n=64
+🔎 Validation per-band PSNR mean | b0:13.95, b1:13.24, b2:15.71, b3:14.57, b4:12.67, b5:14.81, b6:14.19, b7:14.37, b8:13.60, b9:14.72, b10:14.08, b11:14.03, b12:13.00, b13:14.84, b14:13.37, b15:12.98, ...
+⏱️ Validation timing | data_wait=0.19s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.88s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_9500.pth
+📈 Iter 9600 | Train Loss: 0.945734 | LR: 2.500e-05
+📈 Iter 9700 | Train Loss: 0.973542 | LR: 2.500e-05
+📈 Iter 9800 | Train Loss: 0.928398 | LR: 2.500e-05
+📈 Iter 9900 | Train Loss: 0.950666 | LR: 2.500e-05
+🔎 train mask debug iter=10000 reduce=mean mask_mean=0.8970 mask_gt_0.5=1.0000
+📈 Iter 10000 | Train Loss: 0.947148 | LR: 2.500e-05
+📌 Val Iter 10000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=10000 idx=0 psnr=13.3451 gt_mean=0.5022 pred_mean=0.5013 path=None
+🔎 Val sample debug | iter=10000 idx=1 psnr=13.2527 gt_mean=0.4989 pred_mean=0.4967 path=None
+🔎 Val sample debug | iter=10000 idx=2 psnr=12.8190 gt_mean=0.4761 pred_mean=0.4855 path=None
+🔎 Val sample debug | iter=10000 idx=3 psnr=15.6897 gt_mean=0.4867 pred_mean=0.4950 path=None
+🔎 Val sample debug | iter=10000 idx=4 psnr=12.6484 gt_mean=0.4746 pred_mean=0.4836 path=None
+🔎 Val sample debug | iter=10000 idx=5 psnr=15.3293 gt_mean=0.4788 pred_mean=0.4891 path=None
+🔎 Val sample debug | iter=10000 idx=6 psnr=14.5385 gt_mean=0.5188 pred_mean=0.4992 path=None
+🔎 Val sample debug | iter=10000 idx=7 psnr=13.0473 gt_mean=0.5119 pred_mean=0.5000 path=None
+📌 Val Iter 10000:  12%|█▎        | 1/8 [00:00<00:04,  1.69it/s]📌 Val Iter 10000:  50%|█████     | 4/8 [00:00<00:00,  6.84it/s]📌 Val Iter 10000:  88%|████████▊ | 7/8 [00:00<00:00, 11.05it/s]📌 Val Iter 10000: 100%|██████████| 8/8 [00:00<00:00,  9.01it/s]
+📊 Validation Metrics | PSNR: 14.1878 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.1880
+🔎 Validation PSNR spread | min=12.1552 median=14.3164 max=16.0088 n=64
+🔎 Validation per-band PSNR mean | b0:13.94, b1:13.17, b2:15.68, b3:14.45, b4:12.59, b5:14.88, b6:14.17, b7:14.26, b8:13.74, b9:14.70, b10:14.04, b11:14.11, b12:13.16, b13:14.73, b14:13.31, b15:13.00, ...
+⏱️ Validation timing | data_wait=0.19s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.35s total=0.89s
+🏆 New best metric: 14.1878 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_10000.pth
+📈 Iter 10100 | Train Loss: 0.935075 | LR: 2.500e-05
+📈 Iter 10200 | Train Loss: 0.915926 | LR: 2.500e-05
+📈 Iter 10300 | Train Loss: 0.973962 | LR: 2.500e-05
+📈 Iter 10400 | Train Loss: 0.905641 | LR: 2.500e-05
+🔎 train mask debug iter=10500 reduce=mean mask_mean=0.8878 mask_gt_0.5=1.0000
+📈 Iter 10500 | Train Loss: 1.001853 | LR: 2.500e-05
+📌 Val Iter 10500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=10500 idx=0 psnr=13.4885 gt_mean=0.5022 pred_mean=0.5045 path=None
+🔎 Val sample debug | iter=10500 idx=1 psnr=13.2326 gt_mean=0.4989 pred_mean=0.4943 path=None
+🔎 Val sample debug | iter=10500 idx=2 psnr=12.7075 gt_mean=0.4761 pred_mean=0.4821 path=None
+🔎 Val sample debug | iter=10500 idx=3 psnr=15.5072 gt_mean=0.4867 pred_mean=0.4937 path=None
+🔎 Val sample debug | iter=10500 idx=4 psnr=12.7381 gt_mean=0.4746 pred_mean=0.4804 path=None
+🔎 Val sample debug | iter=10500 idx=5 psnr=15.2740 gt_mean=0.4788 pred_mean=0.4851 path=None
+🔎 Val sample debug | iter=10500 idx=6 psnr=14.5110 gt_mean=0.5188 pred_mean=0.4997 path=None
+🔎 Val sample debug | iter=10500 idx=7 psnr=13.1070 gt_mean=0.5119 pred_mean=0.5030 path=None
+📌 Val Iter 10500:  12%|█▎        | 1/8 [00:00<00:04,  1.69it/s]📌 Val Iter 10500:  50%|█████     | 4/8 [00:00<00:00,  6.82it/s]📌 Val Iter 10500:  88%|████████▊ | 7/8 [00:00<00:00, 11.03it/s]📌 Val Iter 10500: 100%|██████████| 8/8 [00:00<00:00,  8.99it/s]
+📊 Validation Metrics | PSNR: 14.2175 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2177
+🔎 Validation PSNR spread | min=12.1112 median=14.3798 max=16.1598 n=64
+🔎 Validation per-band PSNR mean | b0:13.69, b1:13.12, b2:15.68, b3:14.52, b4:12.83, b5:14.88, b6:14.22, b7:14.26, b8:13.74, b9:14.70, b10:14.07, b11:14.11, b12:13.24, b13:14.89, b14:13.26, b15:12.91, ...
+⏱️ Validation timing | data_wait=0.19s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.36s total=0.89s
+🏆 New best metric: 14.2175 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_10500.pth
+📈 Iter 10600 | Train Loss: 0.890952 | LR: 2.500e-05
+📈 Iter 10700 | Train Loss: 0.994894 | LR: 2.500e-05
+📈 Iter 10800 | Train Loss: 0.891587 | LR: 2.500e-05
+📈 Iter 10900 | Train Loss: 0.987996 | LR: 2.500e-05
+🔎 train mask debug iter=11000 reduce=mean mask_mean=0.9202 mask_gt_0.5=1.0000
+📈 Iter 11000 | Train Loss: 0.944908 | LR: 2.500e-05
+📌 Val Iter 11000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=11000 idx=0 psnr=13.3511 gt_mean=0.5022 pred_mean=0.5005 path=None
+🔎 Val sample debug | iter=11000 idx=1 psnr=13.2085 gt_mean=0.4989 pred_mean=0.4952 path=None
+🔎 Val sample debug | iter=11000 idx=2 psnr=12.7686 gt_mean=0.4761 pred_mean=0.4819 path=None
+🔎 Val sample debug | iter=11000 idx=3 psnr=15.6599 gt_mean=0.4867 pred_mean=0.4914 path=None
+🔎 Val sample debug | iter=11000 idx=4 psnr=12.7585 gt_mean=0.4746 pred_mean=0.4809 path=None
+🔎 Val sample debug | iter=11000 idx=5 psnr=15.4799 gt_mean=0.4788 pred_mean=0.4822 path=None
+🔎 Val sample debug | iter=11000 idx=6 psnr=14.4403 gt_mean=0.5188 pred_mean=0.4975 path=None
+🔎 Val sample debug | iter=11000 idx=7 psnr=13.1151 gt_mean=0.5119 pred_mean=0.5013 path=None
+📌 Val Iter 11000:  12%|█▎        | 1/8 [00:00<00:04,  1.60it/s]📌 Val Iter 11000:  50%|█████     | 4/8 [00:00<00:00,  6.55it/s]📌 Val Iter 11000:  88%|████████▊ | 7/8 [00:00<00:00, 10.70it/s]📌 Val Iter 11000: 100%|██████████| 8/8 [00:00<00:00,  8.68it/s]
+📊 Validation Metrics | PSNR: 14.2377 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2379
+🔎 Validation PSNR spread | min=11.9685 median=14.3625 max=16.4146 n=64
+🔎 Validation per-band PSNR mean | b0:13.95, b1:13.18, b2:15.61, b3:14.46, b4:12.88, b5:14.93, b6:14.24, b7:14.36, b8:13.78, b9:14.69, b10:14.23, b11:14.03, b12:13.27, b13:14.95, b14:13.33, b15:12.98, ...
+⏱️ Validation timing | data_wait=0.22s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.92s
+🏆 New best metric: 14.2377 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_11000.pth
+📈 Iter 11100 | Train Loss: 0.977659 | LR: 2.500e-05
+📈 Iter 11200 | Train Loss: 0.876403 | LR: 2.500e-05
+📈 Iter 11300 | Train Loss: 0.915471 | LR: 2.500e-05
+📈 Iter 11400 | Train Loss: 0.961892 | LR: 2.500e-05
+🔎 train mask debug iter=11500 reduce=mean mask_mean=0.9062 mask_gt_0.5=1.0000
+📈 Iter 11500 | Train Loss: 1.003606 | LR: 2.500e-05
+📌 Val Iter 11500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=11500 idx=0 psnr=13.5507 gt_mean=0.5022 pred_mean=0.5006 path=None
+🔎 Val sample debug | iter=11500 idx=1 psnr=13.2335 gt_mean=0.4989 pred_mean=0.4988 path=None
+🔎 Val sample debug | iter=11500 idx=2 psnr=12.7958 gt_mean=0.4761 pred_mean=0.4859 path=None
+🔎 Val sample debug | iter=11500 idx=3 psnr=15.7753 gt_mean=0.4867 pred_mean=0.4951 path=None
+🔎 Val sample debug | iter=11500 idx=4 psnr=12.7888 gt_mean=0.4746 pred_mean=0.4815 path=None
+🔎 Val sample debug | iter=11500 idx=5 psnr=15.3907 gt_mean=0.4788 pred_mean=0.4858 path=None
+🔎 Val sample debug | iter=11500 idx=6 psnr=14.4024 gt_mean=0.5188 pred_mean=0.4985 path=None
+🔎 Val sample debug | iter=11500 idx=7 psnr=13.3405 gt_mean=0.5119 pred_mean=0.5003 path=None
+📌 Val Iter 11500:  12%|█▎        | 1/8 [00:00<00:04,  1.75it/s]📌 Val Iter 11500:  50%|█████     | 4/8 [00:00<00:00,  7.01it/s]📌 Val Iter 11500:  88%|████████▊ | 7/8 [00:00<00:00, 11.24it/s]📌 Val Iter 11500: 100%|██████████| 8/8 [00:00<00:00,  9.20it/s]
+📊 Validation Metrics | PSNR: 14.2279 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2281
+🔎 Validation PSNR spread | min=12.0618 median=14.3830 max=16.1630 n=64
+🔎 Validation per-band PSNR mean | b0:13.97, b1:13.18, b2:15.73, b3:14.55, b4:12.80, b5:15.02, b6:14.13, b7:14.45, b8:13.73, b9:14.77, b10:14.04, b11:14.13, b12:13.17, b13:14.93, b14:13.36, b15:12.91, ...
+⏱️ Validation timing | data_wait=0.17s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.87s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_11500.pth
+📈 Iter 11600 | Train Loss: 0.980779 | LR: 2.500e-05
+📈 Iter 11700 | Train Loss: 0.855807 | LR: 2.500e-05
+📈 Iter 11800 | Train Loss: 1.009793 | LR: 2.500e-05
+📈 Iter 11900 | Train Loss: 0.874762 | LR: 2.500e-05
+🔎 train mask debug iter=12000 reduce=mean mask_mean=0.9120 mask_gt_0.5=0.9999
+📈 Iter 12000 | Train Loss: 1.001859 | LR: 2.500e-05
+📌 Val Iter 12000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=12000 idx=0 psnr=13.4144 gt_mean=0.5022 pred_mean=0.5067 path=None
+🔎 Val sample debug | iter=12000 idx=1 psnr=13.1489 gt_mean=0.4989 pred_mean=0.5039 path=None
+🔎 Val sample debug | iter=12000 idx=2 psnr=12.8076 gt_mean=0.4761 pred_mean=0.4937 path=None
+🔎 Val sample debug | iter=12000 idx=3 psnr=15.3696 gt_mean=0.4867 pred_mean=0.4975 path=None
+🔎 Val sample debug | iter=12000 idx=4 psnr=12.7957 gt_mean=0.4746 pred_mean=0.4817 path=None
+🔎 Val sample debug | iter=12000 idx=5 psnr=15.4233 gt_mean=0.4788 pred_mean=0.4900 path=None
+🔎 Val sample debug | iter=12000 idx=6 psnr=14.5802 gt_mean=0.5188 pred_mean=0.5041 path=None
+🔎 Val sample debug | iter=12000 idx=7 psnr=13.2371 gt_mean=0.5119 pred_mean=0.5028 path=None
+📌 Val Iter 12000:  12%|█▎        | 1/8 [00:00<00:04,  1.58it/s]📌 Val Iter 12000:  50%|█████     | 4/8 [00:00<00:00,  6.47it/s]📌 Val Iter 12000:  88%|████████▊ | 7/8 [00:00<00:00, 10.60it/s]📌 Val Iter 12000: 100%|██████████| 8/8 [00:00<00:00,  8.59it/s]
+📊 Validation Metrics | PSNR: 14.2129 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2131
+🔎 Validation PSNR spread | min=12.0711 median=14.3543 max=16.1805 n=64
+🔎 Validation per-band PSNR mean | b0:13.80, b1:13.17, b2:15.68, b3:14.52, b4:12.80, b5:14.76, b6:14.20, b7:14.45, b8:13.68, b9:14.73, b10:14.24, b11:14.06, b12:13.09, b13:14.89, b14:13.34, b15:13.05, ...
+⏱️ Validation timing | data_wait=0.23s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.93s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_12000.pth
+📈 Iter 12100 | Train Loss: 0.968161 | LR: 2.500e-05
+📈 Iter 12200 | Train Loss: 0.855223 | LR: 2.500e-05
+📈 Iter 12300 | Train Loss: 0.940821 | LR: 2.500e-05
+📈 Iter 12400 | Train Loss: 0.974597 | LR: 2.500e-05
+🔎 train mask debug iter=12500 reduce=mean mask_mean=0.8622 mask_gt_0.5=1.0000
+📈 Iter 12500 | Train Loss: 1.003586 | LR: 2.500e-05
+📌 Val Iter 12500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=12500 idx=0 psnr=13.3382 gt_mean=0.5022 pred_mean=0.5027 path=None
+🔎 Val sample debug | iter=12500 idx=1 psnr=13.2430 gt_mean=0.4989 pred_mean=0.5069 path=None
+🔎 Val sample debug | iter=12500 idx=2 psnr=12.8344 gt_mean=0.4761 pred_mean=0.4988 path=None
+🔎 Val sample debug | iter=12500 idx=3 psnr=15.4781 gt_mean=0.4867 pred_mean=0.4956 path=None
+🔎 Val sample debug | iter=12500 idx=4 psnr=12.6345 gt_mean=0.4746 pred_mean=0.4806 path=None
+🔎 Val sample debug | iter=12500 idx=5 psnr=15.6379 gt_mean=0.4788 pred_mean=0.4842 path=None
+🔎 Val sample debug | iter=12500 idx=6 psnr=14.4487 gt_mean=0.5188 pred_mean=0.5000 path=None
+🔎 Val sample debug | iter=12500 idx=7 psnr=13.1705 gt_mean=0.5119 pred_mean=0.5006 path=None
+📌 Val Iter 12500:  12%|█▎        | 1/8 [00:00<00:03,  1.96it/s]📌 Val Iter 12500:  50%|█████     | 4/8 [00:00<00:00,  7.62it/s]📌 Val Iter 12500:  88%|████████▊ | 7/8 [00:00<00:00, 11.96it/s]📌 Val Iter 12500: 100%|██████████| 8/8 [00:00<00:00,  9.89it/s]
+📊 Validation Metrics | PSNR: 14.2173 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2174
+🔎 Validation PSNR spread | min=12.0476 median=14.3546 max=16.1354 n=64
+🔎 Validation per-band PSNR mean | b0:13.87, b1:13.27, b2:15.71, b3:14.53, b4:12.60, b5:14.91, b6:14.10, b7:14.33, b8:13.73, b9:14.68, b10:14.12, b11:14.08, b12:13.16, b13:14.89, b14:13.28, b15:13.07, ...
+⏱️ Validation timing | data_wait=0.11s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.81s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_12500.pth
+📈 Iter 12600 | Train Loss: 0.924724 | LR: 1.250e-05
+📈 Iter 12700 | Train Loss: 1.006626 | LR: 1.250e-05
+📈 Iter 12800 | Train Loss: 0.919720 | LR: 1.250e-05
+📈 Iter 12900 | Train Loss: 0.918835 | LR: 1.250e-05
+🔎 train mask debug iter=13000 reduce=mean mask_mean=0.9668 mask_gt_0.5=1.0000
+📈 Iter 13000 | Train Loss: 0.927411 | LR: 1.250e-05
+📌 Val Iter 13000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=13000 idx=0 psnr=13.4125 gt_mean=0.5022 pred_mean=0.5048 path=None
+🔎 Val sample debug | iter=13000 idx=1 psnr=13.2874 gt_mean=0.4989 pred_mean=0.5074 path=None
+🔎 Val sample debug | iter=13000 idx=2 psnr=12.8809 gt_mean=0.4761 pred_mean=0.4968 path=None
+🔎 Val sample debug | iter=13000 idx=3 psnr=15.5424 gt_mean=0.4867 pred_mean=0.4955 path=None
+🔎 Val sample debug | iter=13000 idx=4 psnr=12.6779 gt_mean=0.4746 pred_mean=0.4789 path=None
+🔎 Val sample debug | iter=13000 idx=5 psnr=15.6429 gt_mean=0.4788 pred_mean=0.4830 path=None
+🔎 Val sample debug | iter=13000 idx=6 psnr=14.5223 gt_mean=0.5188 pred_mean=0.4998 path=None
+🔎 Val sample debug | iter=13000 idx=7 psnr=13.0692 gt_mean=0.5119 pred_mean=0.5030 path=None
+📌 Val Iter 13000:  12%|█▎        | 1/8 [00:00<00:03,  1.92it/s]📌 Val Iter 13000:  50%|█████     | 4/8 [00:00<00:00,  7.52it/s]📌 Val Iter 13000:  88%|████████▊ | 7/8 [00:00<00:00, 11.84it/s]📌 Val Iter 13000: 100%|██████████| 8/8 [00:00<00:00,  9.77it/s]
+📊 Validation Metrics | PSNR: 14.2502 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2504
+🔎 Validation PSNR spread | min=12.0006 median=14.3596 max=16.1984 n=64
+🔎 Validation per-band PSNR mean | b0:13.97, b1:13.27, b2:15.71, b3:14.49, b4:12.86, b5:14.89, b6:14.27, b7:14.42, b8:13.69, b9:14.69, b10:14.14, b11:14.03, b12:13.19, b13:14.93, b14:13.29, b15:13.14, ...
+⏱️ Validation timing | data_wait=0.11s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.36s total=0.82s
+🏆 New best metric: 14.2502 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_13000.pth
+📈 Iter 13100 | Train Loss: 0.946851 | LR: 1.250e-05
+📈 Iter 13200 | Train Loss: 0.983242 | LR: 1.250e-05
+📈 Iter 13300 | Train Loss: 0.955916 | LR: 1.250e-05
+📈 Iter 13400 | Train Loss: 0.902523 | LR: 1.250e-05
+🔎 train mask debug iter=13500 reduce=mean mask_mean=0.8952 mask_gt_0.5=1.0000
+📈 Iter 13500 | Train Loss: 0.951499 | LR: 1.250e-05
+📌 Val Iter 13500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=13500 idx=0 psnr=13.3448 gt_mean=0.5022 pred_mean=0.5027 path=None
+🔎 Val sample debug | iter=13500 idx=1 psnr=13.2521 gt_mean=0.4989 pred_mean=0.5086 path=None
+🔎 Val sample debug | iter=13500 idx=2 psnr=12.8118 gt_mean=0.4761 pred_mean=0.4957 path=None
+🔎 Val sample debug | iter=13500 idx=3 psnr=15.5138 gt_mean=0.4867 pred_mean=0.4959 path=None
+🔎 Val sample debug | iter=13500 idx=4 psnr=12.6920 gt_mean=0.4746 pred_mean=0.4767 path=None
+🔎 Val sample debug | iter=13500 idx=5 psnr=15.6649 gt_mean=0.4788 pred_mean=0.4813 path=None
+🔎 Val sample debug | iter=13500 idx=6 psnr=14.5162 gt_mean=0.5188 pred_mean=0.5004 path=None
+🔎 Val sample debug | iter=13500 idx=7 psnr=13.1660 gt_mean=0.5119 pred_mean=0.5005 path=None
+📌 Val Iter 13500:  12%|█▎        | 1/8 [00:00<00:04,  1.66it/s]📌 Val Iter 13500:  50%|█████     | 4/8 [00:00<00:00,  6.73it/s]📌 Val Iter 13500:  88%|████████▊ | 7/8 [00:00<00:00, 10.91it/s]📌 Val Iter 13500: 100%|██████████| 8/8 [00:00<00:00,  8.88it/s]
+📊 Validation Metrics | PSNR: 14.2460 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2462
+🔎 Validation PSNR spread | min=12.0164 median=14.3991 max=16.0780 n=64
+🔎 Validation per-band PSNR mean | b0:13.92, b1:13.28, b2:15.68, b3:14.51, b4:12.86, b5:14.97, b6:14.19, b7:14.37, b8:13.78, b9:14.78, b10:14.20, b11:14.19, b12:13.21, b13:14.93, b14:13.32, b15:13.07, ...
+⏱️ Validation timing | data_wait=0.20s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.90s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_13500.pth
+📈 Iter 13600 | Train Loss: 0.979892 | LR: 1.250e-05
+📈 Iter 13700 | Train Loss: 0.943513 | LR: 1.250e-05
+📈 Iter 13800 | Train Loss: 0.973507 | LR: 1.250e-05
+📈 Iter 13900 | Train Loss: 0.914197 | LR: 1.250e-05
+🔎 train mask debug iter=14000 reduce=mean mask_mean=0.9264 mask_gt_0.5=1.0000
+📈 Iter 14000 | Train Loss: 0.952202 | LR: 1.250e-05
+📌 Val Iter 14000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=14000 idx=0 psnr=13.5006 gt_mean=0.5022 pred_mean=0.5024 path=None
+🔎 Val sample debug | iter=14000 idx=1 psnr=13.2709 gt_mean=0.4989 pred_mean=0.5099 path=None
+🔎 Val sample debug | iter=14000 idx=2 psnr=12.7581 gt_mean=0.4761 pred_mean=0.4987 path=None
+🔎 Val sample debug | iter=14000 idx=3 psnr=15.7676 gt_mean=0.4867 pred_mean=0.4970 path=None
+🔎 Val sample debug | iter=14000 idx=4 psnr=12.7882 gt_mean=0.4746 pred_mean=0.4760 path=None
+🔎 Val sample debug | iter=14000 idx=5 psnr=15.5426 gt_mean=0.4788 pred_mean=0.4820 path=None
+🔎 Val sample debug | iter=14000 idx=6 psnr=14.4683 gt_mean=0.5188 pred_mean=0.5009 path=None
+🔎 Val sample debug | iter=14000 idx=7 psnr=13.2292 gt_mean=0.5119 pred_mean=0.5018 path=None
+📌 Val Iter 14000:  12%|█▎        | 1/8 [00:00<00:04,  1.73it/s]📌 Val Iter 14000:  50%|█████     | 4/8 [00:00<00:00,  6.95it/s]📌 Val Iter 14000:  88%|████████▊ | 7/8 [00:00<00:00, 11.17it/s]📌 Val Iter 14000: 100%|██████████| 8/8 [00:00<00:00,  9.13it/s]
+📊 Validation Metrics | PSNR: 14.2662 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2664
+🔎 Validation PSNR spread | min=11.9944 median=14.4309 max=16.0925 n=64
+🔎 Validation per-band PSNR mean | b0:14.08, b1:13.18, b2:15.69, b3:14.50, b4:12.86, b5:14.96, b6:14.26, b7:14.28, b8:13.74, b9:14.81, b10:14.24, b11:14.16, b12:13.20, b13:14.87, b14:13.34, b15:13.13, ...
+⏱️ Validation timing | data_wait=0.18s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.87s
+🏆 New best metric: 14.2662 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_14000.pth
+📈 Iter 14100 | Train Loss: 0.955477 | LR: 1.250e-05
+📈 Iter 14200 | Train Loss: 0.888155 | LR: 1.250e-05
+📈 Iter 14300 | Train Loss: 0.863184 | LR: 1.250e-05
+📈 Iter 14400 | Train Loss: 0.956383 | LR: 1.250e-05
+🔎 train mask debug iter=14500 reduce=mean mask_mean=0.9360 mask_gt_0.5=1.0000
+📈 Iter 14500 | Train Loss: 0.979086 | LR: 1.250e-05
+📌 Val Iter 14500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=14500 idx=0 psnr=13.4374 gt_mean=0.5022 pred_mean=0.5013 path=None
+🔎 Val sample debug | iter=14500 idx=1 psnr=13.2948 gt_mean=0.4989 pred_mean=0.5002 path=None
+🔎 Val sample debug | iter=14500 idx=2 psnr=12.8013 gt_mean=0.4761 pred_mean=0.4946 path=None
+🔎 Val sample debug | iter=14500 idx=3 psnr=15.6558 gt_mean=0.4867 pred_mean=0.4946 path=None
+🔎 Val sample debug | iter=14500 idx=4 psnr=12.7162 gt_mean=0.4746 pred_mean=0.4710 path=None
+🔎 Val sample debug | iter=14500 idx=5 psnr=15.5456 gt_mean=0.4788 pred_mean=0.4815 path=None
+🔎 Val sample debug | iter=14500 idx=6 psnr=14.5918 gt_mean=0.5188 pred_mean=0.4990 path=None
+🔎 Val sample debug | iter=14500 idx=7 psnr=13.1015 gt_mean=0.5119 pred_mean=0.4989 path=None
+📌 Val Iter 14500:  12%|█▎        | 1/8 [00:00<00:03,  1.83it/s]📌 Val Iter 14500:  50%|█████     | 4/8 [00:00<00:00,  7.25it/s]📌 Val Iter 14500:  88%|████████▊ | 7/8 [00:00<00:00, 11.53it/s]📌 Val Iter 14500: 100%|██████████| 8/8 [00:00<00:00,  9.47it/s]
+📊 Validation Metrics | PSNR: 14.2281 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2283
+🔎 Validation PSNR spread | min=11.9979 median=14.3724 max=16.0831 n=64
+🔎 Validation per-band PSNR mean | b0:13.98, b1:13.20, b2:15.57, b3:14.49, b4:12.84, b5:15.01, b6:14.22, b7:14.35, b8:13.77, b9:14.72, b10:14.25, b11:14.15, b12:13.19, b13:14.85, b14:13.30, b15:13.10, ...
+⏱️ Validation timing | data_wait=0.14s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.84s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_14500.pth
+📈 Iter 14600 | Train Loss: 0.850475 | LR: 1.250e-05
+📈 Iter 14700 | Train Loss: 0.964347 | LR: 1.250e-05
+📈 Iter 14800 | Train Loss: 0.917351 | LR: 1.250e-05
+📈 Iter 14900 | Train Loss: 0.956286 | LR: 1.250e-05
+🔎 train mask debug iter=15000 reduce=mean mask_mean=0.9308 mask_gt_0.5=1.0000
+📈 Iter 15000 | Train Loss: 0.840241 | LR: 1.250e-05
+📌 Val Iter 15000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=15000 idx=0 psnr=13.5107 gt_mean=0.5022 pred_mean=0.4992 path=None
+🔎 Val sample debug | iter=15000 idx=1 psnr=13.2933 gt_mean=0.4989 pred_mean=0.5067 path=None
+🔎 Val sample debug | iter=15000 idx=2 psnr=12.7781 gt_mean=0.4761 pred_mean=0.4976 path=None
+🔎 Val sample debug | iter=15000 idx=3 psnr=15.7928 gt_mean=0.4867 pred_mean=0.4957 path=None
+🔎 Val sample debug | iter=15000 idx=4 psnr=12.7539 gt_mean=0.4746 pred_mean=0.4729 path=None
+🔎 Val sample debug | iter=15000 idx=5 psnr=15.4041 gt_mean=0.4788 pred_mean=0.4811 path=None
+🔎 Val sample debug | iter=15000 idx=6 psnr=14.5674 gt_mean=0.5188 pred_mean=0.4982 path=None
+🔎 Val sample debug | iter=15000 idx=7 psnr=13.2013 gt_mean=0.5119 pred_mean=0.4996 path=None
+📌 Val Iter 15000:  12%|█▎        | 1/8 [00:00<00:04,  1.51it/s]📌 Val Iter 15000:  50%|█████     | 4/8 [00:00<00:00,  6.25it/s]📌 Val Iter 15000:  88%|████████▊ | 7/8 [00:00<00:00, 10.32it/s]📌 Val Iter 15000: 100%|██████████| 8/8 [00:00<00:00,  8.33it/s]
+📊 Validation Metrics | PSNR: 14.2514 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2516
+🔎 Validation PSNR spread | min=11.9357 median=14.4016 max=16.0089 n=64
+🔎 Validation per-band PSNR mean | b0:14.07, b1:13.25, b2:15.67, b3:14.39, b4:12.78, b5:14.98, b6:14.25, b7:14.32, b8:13.75, b9:14.85, b10:14.28, b11:14.14, b12:13.23, b13:14.86, b14:13.29, b15:13.12, ...
+⏱️ Validation timing | data_wait=0.25s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.37s total=0.96s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_15000.pth
+📈 Iter 15100 | Train Loss: 0.956960 | LR: 1.250e-05
+📈 Iter 15200 | Train Loss: 0.954259 | LR: 1.250e-05
+📈 Iter 15300 | Train Loss: 0.943474 | LR: 1.250e-05
+📈 Iter 15400 | Train Loss: 1.007279 | LR: 1.250e-05
+🔎 train mask debug iter=15500 reduce=mean mask_mean=0.9315 mask_gt_0.5=1.0000
+📈 Iter 15500 | Train Loss: 0.916972 | LR: 1.250e-05
+📌 Val Iter 15500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=15500 idx=0 psnr=13.4056 gt_mean=0.5022 pred_mean=0.5032 path=None
+🔎 Val sample debug | iter=15500 idx=1 psnr=13.3221 gt_mean=0.4989 pred_mean=0.5010 path=None
+🔎 Val sample debug | iter=15500 idx=2 psnr=12.8599 gt_mean=0.4761 pred_mean=0.4906 path=None
+🔎 Val sample debug | iter=15500 idx=3 psnr=15.7382 gt_mean=0.4867 pred_mean=0.4946 path=None
+🔎 Val sample debug | iter=15500 idx=4 psnr=12.6737 gt_mean=0.4746 pred_mean=0.4741 path=None
+🔎 Val sample debug | iter=15500 idx=5 psnr=15.5666 gt_mean=0.4788 pred_mean=0.4779 path=None
+🔎 Val sample debug | iter=15500 idx=6 psnr=14.6641 gt_mean=0.5188 pred_mean=0.4988 path=None
+🔎 Val sample debug | iter=15500 idx=7 psnr=13.1049 gt_mean=0.5119 pred_mean=0.5011 path=None
+📌 Val Iter 15500:  12%|█▎        | 1/8 [00:00<00:04,  1.57it/s]📌 Val Iter 15500:  50%|█████     | 4/8 [00:00<00:00,  6.46it/s]📌 Val Iter 15500:  88%|████████▊ | 7/8 [00:00<00:00, 10.58it/s]📌 Val Iter 15500: 100%|██████████| 8/8 [00:00<00:00,  8.57it/s]
+📊 Validation Metrics | PSNR: 14.2313 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2314
+🔎 Validation PSNR spread | min=12.0144 median=14.3168 max=16.0048 n=64
+🔎 Validation per-band PSNR mean | b0:13.99, b1:13.23, b2:15.70, b3:14.47, b4:12.89, b5:14.89, b6:14.29, b7:14.39, b8:13.81, b9:14.76, b10:14.21, b11:14.15, b12:13.19, b13:14.86, b14:13.32, b15:13.10, ...
+⏱️ Validation timing | data_wait=0.23s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.36s total=0.93s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_15500.pth
+📈 Iter 15600 | Train Loss: 0.861340 | LR: 6.250e-06
+📈 Iter 15700 | Train Loss: 0.935149 | LR: 6.250e-06
+📈 Iter 15800 | Train Loss: 0.884027 | LR: 6.250e-06
+📈 Iter 15900 | Train Loss: 0.997051 | LR: 6.250e-06
+🔎 train mask debug iter=16000 reduce=mean mask_mean=0.9017 mask_gt_0.5=1.0000
+📈 Iter 16000 | Train Loss: 0.980936 | LR: 6.250e-06
+📌 Val Iter 16000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=16000 idx=0 psnr=13.5017 gt_mean=0.5022 pred_mean=0.5040 path=None
+🔎 Val sample debug | iter=16000 idx=1 psnr=13.3403 gt_mean=0.4989 pred_mean=0.5059 path=None
+🔎 Val sample debug | iter=16000 idx=2 psnr=12.7884 gt_mean=0.4761 pred_mean=0.4960 path=None
+🔎 Val sample debug | iter=16000 idx=3 psnr=15.7112 gt_mean=0.4867 pred_mean=0.4988 path=None
+🔎 Val sample debug | iter=16000 idx=4 psnr=12.6647 gt_mean=0.4746 pred_mean=0.4744 path=None
+🔎 Val sample debug | iter=16000 idx=5 psnr=15.6360 gt_mean=0.4788 pred_mean=0.4790 path=None
+🔎 Val sample debug | iter=16000 idx=6 psnr=14.5811 gt_mean=0.5188 pred_mean=0.5025 path=None
+🔎 Val sample debug | iter=16000 idx=7 psnr=13.2300 gt_mean=0.5119 pred_mean=0.5025 path=None
+📌 Val Iter 16000:  12%|█▎        | 1/8 [00:00<00:04,  1.65it/s]📌 Val Iter 16000:  50%|█████     | 4/8 [00:00<00:00,  6.70it/s]📌 Val Iter 16000:  88%|████████▊ | 7/8 [00:00<00:00, 10.87it/s]📌 Val Iter 16000: 100%|██████████| 8/8 [00:00<00:00,  8.84it/s]
+📊 Validation Metrics | PSNR: 14.2600 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2601
+🔎 Validation PSNR spread | min=11.9705 median=14.3754 max=16.0384 n=64
+🔎 Validation per-band PSNR mean | b0:14.07, b1:13.23, b2:15.70, b3:14.52, b4:12.89, b5:14.91, b6:14.28, b7:14.35, b8:13.77, b9:14.80, b10:14.25, b11:14.12, b12:13.23, b13:14.86, b14:13.33, b15:13.13, ...
+⏱️ Validation timing | data_wait=0.20s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.37s total=0.90s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_16000.pth
+📈 Iter 16100 | Train Loss: 0.949416 | LR: 6.250e-06
+📈 Iter 16200 | Train Loss: 0.962304 | LR: 6.250e-06
+📈 Iter 16300 | Train Loss: 0.977767 | LR: 6.250e-06
+📈 Iter 16400 | Train Loss: 0.864782 | LR: 6.250e-06
+🔎 train mask debug iter=16500 reduce=mean mask_mean=0.8958 mask_gt_0.5=1.0000
+📈 Iter 16500 | Train Loss: 0.957250 | LR: 6.250e-06
+📌 Val Iter 16500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=16500 idx=0 psnr=13.5583 gt_mean=0.5022 pred_mean=0.5041 path=None
+🔎 Val sample debug | iter=16500 idx=1 psnr=13.3326 gt_mean=0.4989 pred_mean=0.5070 path=None
+🔎 Val sample debug | iter=16500 idx=2 psnr=12.8098 gt_mean=0.4761 pred_mean=0.5004 path=None
+🔎 Val sample debug | iter=16500 idx=3 psnr=15.7996 gt_mean=0.4867 pred_mean=0.4976 path=None
+🔎 Val sample debug | iter=16500 idx=4 psnr=12.7642 gt_mean=0.4746 pred_mean=0.4751 path=None
+🔎 Val sample debug | iter=16500 idx=5 psnr=15.5066 gt_mean=0.4788 pred_mean=0.4788 path=None
+🔎 Val sample debug | iter=16500 idx=6 psnr=14.5544 gt_mean=0.5188 pred_mean=0.5021 path=None
+🔎 Val sample debug | iter=16500 idx=7 psnr=13.0444 gt_mean=0.5119 pred_mean=0.5030 path=None
+📌 Val Iter 16500:  12%|█▎        | 1/8 [00:00<00:04,  1.67it/s]📌 Val Iter 16500:  50%|█████     | 4/8 [00:00<00:00,  6.76it/s]📌 Val Iter 16500:  88%|████████▊ | 7/8 [00:00<00:00, 10.95it/s]📌 Val Iter 16500: 100%|██████████| 8/8 [00:00<00:00,  8.92it/s]
+📊 Validation Metrics | PSNR: 14.2753 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2754
+🔎 Validation PSNR spread | min=12.0531 median=14.3978 max=16.0674 n=64
+🔎 Validation per-band PSNR mean | b0:14.00, b1:13.28, b2:15.76, b3:14.54, b4:12.85, b5:14.98, b6:14.29, b7:14.32, b8:13.81, b9:14.84, b10:14.23, b11:14.17, b12:13.16, b13:14.85, b14:13.34, b15:13.11, ...
+⏱️ Validation timing | data_wait=0.19s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.90s
+🏆 New best metric: 14.2753 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_16500.pth
+📈 Iter 16600 | Train Loss: 0.991420 | LR: 6.250e-06
+📈 Iter 16700 | Train Loss: 0.950393 | LR: 6.250e-06
+📈 Iter 16800 | Train Loss: 0.930031 | LR: 6.250e-06
+📈 Iter 16900 | Train Loss: 0.869000 | LR: 6.250e-06
+🔎 train mask debug iter=17000 reduce=mean mask_mean=0.9106 mask_gt_0.5=1.0000
+📈 Iter 17000 | Train Loss: 0.940206 | LR: 6.250e-06
+📌 Val Iter 17000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=17000 idx=0 psnr=13.5105 gt_mean=0.5022 pred_mean=0.5030 path=None
+🔎 Val sample debug | iter=17000 idx=1 psnr=13.3579 gt_mean=0.4989 pred_mean=0.5076 path=None
+🔎 Val sample debug | iter=17000 idx=2 psnr=12.8676 gt_mean=0.4761 pred_mean=0.4967 path=None
+🔎 Val sample debug | iter=17000 idx=3 psnr=15.7340 gt_mean=0.4867 pred_mean=0.4967 path=None
+🔎 Val sample debug | iter=17000 idx=4 psnr=12.6749 gt_mean=0.4746 pred_mean=0.4734 path=None
+🔎 Val sample debug | iter=17000 idx=5 psnr=15.6771 gt_mean=0.4788 pred_mean=0.4764 path=None
+🔎 Val sample debug | iter=17000 idx=6 psnr=14.6137 gt_mean=0.5188 pred_mean=0.5014 path=None
+🔎 Val sample debug | iter=17000 idx=7 psnr=13.0723 gt_mean=0.5119 pred_mean=0.5025 path=None
+📌 Val Iter 17000:  12%|█▎        | 1/8 [00:00<00:03,  1.87it/s]📌 Val Iter 17000:  50%|█████     | 4/8 [00:00<00:00,  7.38it/s]📌 Val Iter 17000:  88%|████████▊ | 7/8 [00:00<00:00, 11.68it/s]📌 Val Iter 17000: 100%|██████████| 8/8 [00:00<00:00,  9.62it/s]
+📊 Validation Metrics | PSNR: 14.2626 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2627
+🔎 Validation PSNR spread | min=12.0396 median=14.3576 max=16.0974 n=64
+🔎 Validation per-band PSNR mean | b0:13.98, b1:13.23, b2:15.72, b3:14.51, b4:12.91, b5:14.95, b6:14.31, b7:14.35, b8:13.77, b9:14.74, b10:14.25, b11:14.16, b12:13.22, b13:14.88, b14:13.33, b15:13.15, ...
+⏱️ Validation timing | data_wait=0.12s to_device=0.02s forward=0.32s metrics=0.01s visualize=0.37s total=0.83s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_17000.pth
+📈 Iter 17100 | Train Loss: 0.945069 | LR: 3.125e-06
+📈 Iter 17200 | Train Loss: 0.911062 | LR: 3.125e-06
+📈 Iter 17300 | Train Loss: 1.005943 | LR: 3.125e-06
+📈 Iter 17400 | Train Loss: 0.865761 | LR: 3.125e-06
+🔎 train mask debug iter=17500 reduce=mean mask_mean=0.9082 mask_gt_0.5=1.0000
+📈 Iter 17500 | Train Loss: 0.879319 | LR: 3.125e-06
+📌 Val Iter 17500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=17500 idx=0 psnr=13.5180 gt_mean=0.5022 pred_mean=0.5036 path=None
+🔎 Val sample debug | iter=17500 idx=1 psnr=13.3724 gt_mean=0.4989 pred_mean=0.5069 path=None
+🔎 Val sample debug | iter=17500 idx=2 psnr=12.8122 gt_mean=0.4761 pred_mean=0.4995 path=None
+🔎 Val sample debug | iter=17500 idx=3 psnr=15.6703 gt_mean=0.4867 pred_mean=0.4990 path=None
+🔎 Val sample debug | iter=17500 idx=4 psnr=12.6889 gt_mean=0.4746 pred_mean=0.4742 path=None
+🔎 Val sample debug | iter=17500 idx=5 psnr=15.6070 gt_mean=0.4788 pred_mean=0.4799 path=None
+🔎 Val sample debug | iter=17500 idx=6 psnr=14.6519 gt_mean=0.5188 pred_mean=0.5040 path=None
+🔎 Val sample debug | iter=17500 idx=7 psnr=13.0877 gt_mean=0.5119 pred_mean=0.5032 path=None
+📌 Val Iter 17500:  12%|█▎        | 1/8 [00:00<00:03,  1.79it/s]📌 Val Iter 17500:  50%|█████     | 4/8 [00:00<00:00,  7.14it/s]📌 Val Iter 17500:  88%|████████▊ | 7/8 [00:00<00:00, 11.40it/s]📌 Val Iter 17500: 100%|██████████| 8/8 [00:00<00:00,  9.35it/s]
+📊 Validation Metrics | PSNR: 14.2703 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2705
+🔎 Validation PSNR spread | min=12.0489 median=14.3922 max=16.1347 n=64
+🔎 Validation per-band PSNR mean | b0:13.99, b1:13.27, b2:15.75, b3:14.52, b4:12.90, b5:14.95, b6:14.32, b7:14.35, b8:13.79, b9:14.79, b10:14.26, b11:14.17, b12:13.19, b13:14.86, b14:13.34, b15:13.14, ...
+⏱️ Validation timing | data_wait=0.15s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.85s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_17500.pth
+📈 Iter 17600 | Train Loss: 0.948347 | LR: 3.125e-06
+📈 Iter 17700 | Train Loss: 0.938199 | LR: 3.125e-06
+📈 Iter 17800 | Train Loss: 0.924915 | LR: 3.125e-06
+📈 Iter 17900 | Train Loss: 0.950099 | LR: 3.125e-06
+🔎 train mask debug iter=18000 reduce=mean mask_mean=0.9409 mask_gt_0.5=1.0000
+📈 Iter 18000 | Train Loss: 0.927823 | LR: 3.125e-06
+📌 Val Iter 18000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=18000 idx=0 psnr=13.5558 gt_mean=0.5022 pred_mean=0.5041 path=None
+🔎 Val sample debug | iter=18000 idx=1 psnr=13.3261 gt_mean=0.4989 pred_mean=0.5091 path=None
+🔎 Val sample debug | iter=18000 idx=2 psnr=12.7746 gt_mean=0.4761 pred_mean=0.5017 path=None
+🔎 Val sample debug | iter=18000 idx=3 psnr=15.7105 gt_mean=0.4867 pred_mean=0.5000 path=None
+🔎 Val sample debug | iter=18000 idx=4 psnr=12.7974 gt_mean=0.4746 pred_mean=0.4748 path=None
+🔎 Val sample debug | iter=18000 idx=5 psnr=15.5689 gt_mean=0.4788 pred_mean=0.4796 path=None
+🔎 Val sample debug | iter=18000 idx=6 psnr=14.6150 gt_mean=0.5188 pred_mean=0.5041 path=None
+🔎 Val sample debug | iter=18000 idx=7 psnr=13.1468 gt_mean=0.5119 pred_mean=0.5029 path=None
+📌 Val Iter 18000:  12%|█▎        | 1/8 [00:00<00:03,  1.88it/s]📌 Val Iter 18000:  50%|█████     | 4/8 [00:00<00:00,  7.39it/s]📌 Val Iter 18000:  88%|████████▊ | 7/8 [00:00<00:00, 11.70it/s]📌 Val Iter 18000: 100%|██████████| 8/8 [00:00<00:00,  9.63it/s]
+📊 Validation Metrics | PSNR: 14.2786 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2787
+🔎 Validation PSNR spread | min=12.0672 median=14.4025 max=16.0950 n=64
+🔎 Validation per-band PSNR mean | b0:14.04, b1:13.25, b2:15.73, b3:14.51, b4:12.87, b5:14.99, b6:14.33, b7:14.32, b8:13.81, b9:14.85, b10:14.24, b11:14.18, b12:13.21, b13:14.85, b14:13.33, b15:13.15, ...
+⏱️ Validation timing | data_wait=0.12s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.83s
+🏆 New best metric: 14.2786 | Saving best model...
+🏁 Exported best checkpoint to: best_ckpts/ablation_4f_mask_mean_learnable_pos_no_cross/model.pth
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_18000.pth
+📈 Iter 18100 | Train Loss: 0.945783 | LR: 3.125e-06
+📈 Iter 18200 | Train Loss: 0.923745 | LR: 3.125e-06
+📈 Iter 18300 | Train Loss: 1.001699 | LR: 3.125e-06
+📈 Iter 18400 | Train Loss: 0.959895 | LR: 3.125e-06
+🔎 train mask debug iter=18500 reduce=mean mask_mean=0.9228 mask_gt_0.5=1.0000
+📈 Iter 18500 | Train Loss: 0.982005 | LR: 3.125e-06
+📌 Val Iter 18500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=18500 idx=0 psnr=13.4849 gt_mean=0.5022 pred_mean=0.5024 path=None
+🔎 Val sample debug | iter=18500 idx=1 psnr=13.3798 gt_mean=0.4989 pred_mean=0.5047 path=None
+🔎 Val sample debug | iter=18500 idx=2 psnr=12.8623 gt_mean=0.4761 pred_mean=0.4961 path=None
+🔎 Val sample debug | iter=18500 idx=3 psnr=15.7099 gt_mean=0.4867 pred_mean=0.4961 path=None
+🔎 Val sample debug | iter=18500 idx=4 psnr=12.7380 gt_mean=0.4746 pred_mean=0.4720 path=None
+🔎 Val sample debug | iter=18500 idx=5 psnr=15.6454 gt_mean=0.4788 pred_mean=0.4749 path=None
+🔎 Val sample debug | iter=18500 idx=6 psnr=14.6494 gt_mean=0.5188 pred_mean=0.5018 path=None
+🔎 Val sample debug | iter=18500 idx=7 psnr=13.0587 gt_mean=0.5119 pred_mean=0.5009 path=None
+📌 Val Iter 18500:  12%|█▎        | 1/8 [00:00<00:04,  1.60it/s]📌 Val Iter 18500:  50%|█████     | 4/8 [00:00<00:00,  6.56it/s]📌 Val Iter 18500:  88%|████████▊ | 7/8 [00:00<00:00, 10.70it/s]📌 Val Iter 18500: 100%|██████████| 8/8 [00:00<00:00,  8.69it/s]
+📊 Validation Metrics | PSNR: 14.2717 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2718
+🔎 Validation PSNR spread | min=12.0203 median=14.3774 max=16.0463 n=64
+🔎 Validation per-band PSNR mean | b0:14.06, b1:13.27, b2:15.72, b3:14.53, b4:12.88, b5:15.00, b6:14.29, b7:14.32, b8:13.79, b9:14.82, b10:14.28, b11:14.17, b12:13.19, b13:14.86, b14:13.33, b15:13.11, ...
+⏱️ Validation timing | data_wait=0.22s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.35s total=0.92s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_18500.pth
+📈 Iter 18600 | Train Loss: 0.940042 | LR: 3.125e-06
+📈 Iter 18700 | Train Loss: 0.899568 | LR: 3.125e-06
+📈 Iter 18800 | Train Loss: 0.911262 | LR: 3.125e-06
+📈 Iter 18900 | Train Loss: 1.007614 | LR: 3.125e-06
+🔎 train mask debug iter=19000 reduce=mean mask_mean=0.9456 mask_gt_0.5=1.0000
+📈 Iter 19000 | Train Loss: 0.921528 | LR: 3.125e-06
+📌 Val Iter 19000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=19000 idx=0 psnr=13.5394 gt_mean=0.5022 pred_mean=0.5054 path=None
+🔎 Val sample debug | iter=19000 idx=1 psnr=13.3702 gt_mean=0.4989 pred_mean=0.5070 path=None
+🔎 Val sample debug | iter=19000 idx=2 psnr=12.8397 gt_mean=0.4761 pred_mean=0.4978 path=None
+🔎 Val sample debug | iter=19000 idx=3 psnr=15.6524 gt_mean=0.4867 pred_mean=0.5008 path=None
+🔎 Val sample debug | iter=19000 idx=4 psnr=12.6582 gt_mean=0.4746 pred_mean=0.4727 path=None
+🔎 Val sample debug | iter=19000 idx=5 psnr=15.6354 gt_mean=0.4788 pred_mean=0.4789 path=None
+🔎 Val sample debug | iter=19000 idx=6 psnr=14.6746 gt_mean=0.5188 pred_mean=0.5049 path=None
+🔎 Val sample debug | iter=19000 idx=7 psnr=13.1169 gt_mean=0.5119 pred_mean=0.5025 path=None
+📌 Val Iter 19000:  12%|█▎        | 1/8 [00:00<00:03,  1.77it/s]📌 Val Iter 19000:  50%|█████     | 4/8 [00:00<00:00,  7.06it/s]📌 Val Iter 19000:  88%|████████▊ | 7/8 [00:00<00:00, 11.31it/s]📌 Val Iter 19000: 100%|██████████| 8/8 [00:00<00:00,  9.26it/s]
+📊 Validation Metrics | PSNR: 14.2752 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2754
+🔎 Validation PSNR spread | min=12.0379 median=14.3878 max=16.0503 n=64
+🔎 Validation per-band PSNR mean | b0:14.03, b1:13.27, b2:15.73, b3:14.53, b4:12.89, b5:14.97, b6:14.33, b7:14.34, b8:13.76, b9:14.82, b10:14.26, b11:14.14, b12:13.21, b13:14.88, b14:13.33, b15:13.16, ...
+⏱️ Validation timing | data_wait=0.16s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.86s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_19000.pth
+📈 Iter 19100 | Train Loss: 0.948328 | LR: 3.125e-06
+📈 Iter 19200 | Train Loss: 0.939868 | LR: 3.125e-06
+📈 Iter 19300 | Train Loss: 0.994846 | LR: 3.125e-06
+📈 Iter 19400 | Train Loss: 0.956757 | LR: 3.125e-06
+🔎 train mask debug iter=19500 reduce=mean mask_mean=0.9146 mask_gt_0.5=1.0000
+📈 Iter 19500 | Train Loss: 0.988244 | LR: 3.125e-06
+📌 Val Iter 19500:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=19500 idx=0 psnr=13.5563 gt_mean=0.5022 pred_mean=0.5031 path=None
+🔎 Val sample debug | iter=19500 idx=1 psnr=13.3593 gt_mean=0.4989 pred_mean=0.5057 path=None
+🔎 Val sample debug | iter=19500 idx=2 psnr=12.8504 gt_mean=0.4761 pred_mean=0.4960 path=None
+🔎 Val sample debug | iter=19500 idx=3 psnr=15.7179 gt_mean=0.4867 pred_mean=0.4980 path=None
+🔎 Val sample debug | iter=19500 idx=4 psnr=12.7448 gt_mean=0.4746 pred_mean=0.4723 path=None
+🔎 Val sample debug | iter=19500 idx=5 psnr=15.6232 gt_mean=0.4788 pred_mean=0.4760 path=None
+🔎 Val sample debug | iter=19500 idx=6 psnr=14.6530 gt_mean=0.5188 pred_mean=0.5025 path=None
+🔎 Val sample debug | iter=19500 idx=7 psnr=13.0752 gt_mean=0.5119 pred_mean=0.5020 path=None
+📌 Val Iter 19500:  12%|█▎        | 1/8 [00:00<00:04,  1.73it/s]📌 Val Iter 19500:  50%|█████     | 4/8 [00:00<00:00,  6.96it/s]📌 Val Iter 19500:  88%|████████▊ | 7/8 [00:00<00:00, 11.19it/s]📌 Val Iter 19500: 100%|██████████| 8/8 [00:00<00:00,  9.15it/s]
+📊 Validation Metrics | PSNR: 14.2740 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2741
+🔎 Validation PSNR spread | min=12.0599 median=14.3947 max=16.0613 n=64
+🔎 Validation per-band PSNR mean | b0:14.03, b1:13.23, b2:15.74, b3:14.51, b4:12.89, b5:14.98, b6:14.32, b7:14.32, b8:13.77, b9:14.82, b10:14.27, b11:14.19, b12:13.21, b13:14.86, b14:13.33, b15:13.11, ...
+⏱️ Validation timing | data_wait=0.18s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.35s total=0.87s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_19500.pth
+📈 Iter 19600 | Train Loss: 0.951650 | LR: 1.563e-06
+📈 Iter 19700 | Train Loss: 0.807828 | LR: 1.563e-06
+📈 Iter 19800 | Train Loss: 0.977223 | LR: 1.563e-06
+📈 Iter 19900 | Train Loss: 0.889675 | LR: 1.563e-06
+🔎 train mask debug iter=20000 reduce=mean mask_mean=0.9054 mask_gt_0.5=1.0000
+📈 Iter 20000 | Train Loss: 0.912960 | LR: 1.563e-06
+📌 Val Iter 20000:   0%|          | 0/8 [00:00<?, ?it/s]🔎 Val sample debug | iter=20000 idx=0 psnr=13.5453 gt_mean=0.5022 pred_mean=0.5036 path=None
+🔎 Val sample debug | iter=20000 idx=1 psnr=13.3767 gt_mean=0.4989 pred_mean=0.5069 path=None
+🔎 Val sample debug | iter=20000 idx=2 psnr=12.8235 gt_mean=0.4761 pred_mean=0.4979 path=None
+🔎 Val sample debug | iter=20000 idx=3 psnr=15.6965 gt_mean=0.4867 pred_mean=0.4986 path=None
+🔎 Val sample debug | iter=20000 idx=4 psnr=12.6903 gt_mean=0.4746 pred_mean=0.4730 path=None
+🔎 Val sample debug | iter=20000 idx=5 psnr=15.6440 gt_mean=0.4788 pred_mean=0.4771 path=None
+🔎 Val sample debug | iter=20000 idx=6 psnr=14.6387 gt_mean=0.5188 pred_mean=0.5035 path=None
+🔎 Val sample debug | iter=20000 idx=7 psnr=13.0634 gt_mean=0.5119 pred_mean=0.5019 path=None
+📌 Val Iter 20000:  12%|█▎        | 1/8 [00:00<00:04,  1.59it/s]📌 Val Iter 20000:  50%|█████     | 4/8 [00:00<00:00,  6.51it/s]📌 Val Iter 20000:  88%|████████▊ | 7/8 [00:00<00:00, 10.64it/s]📌 Val Iter 20000: 100%|██████████| 8/8 [00:00<00:00,  8.62it/s]
+📊 Validation Metrics | PSNR: 14.2695 | SSIM/ERGAS/SAM: skipped | Masked-PSNR: 14.2696
+🔎 Validation PSNR spread | min=12.0413 median=14.3868 max=16.0656 n=64
+🔎 Validation per-band PSNR mean | b0:13.99, b1:13.27, b2:15.70, b3:14.51, b4:12.85, b5:14.95, b6:14.33, b7:14.34, b8:13.77, b9:14.79, b10:14.27, b11:14.15, b12:13.21, b13:14.86, b14:13.34, b15:13.09, ...
+⏱️ Validation timing | data_wait=0.23s to_device=0.02s forward=0.31s metrics=0.01s visualize=0.36s total=0.93s
+💾 Saved checkpoint to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/ckpts/model_20000.pth
+📊 Generating training curves...
+✅ Training curves saved to: training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross/2026-05-12_04-35-27/training_curves.png
+🎉 Training Finished Successfully!

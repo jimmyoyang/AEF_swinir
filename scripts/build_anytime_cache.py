@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from datapipe.datasets import robust_per_image_normalize
+from datapipe.datasets import _compute_hard_valid_mask, _select_reflectance_bands, robust_per_image_normalize
 
 
 def group_lr_files_by_tile(lr_dir: Path):
@@ -40,7 +40,13 @@ def compute_day_of_year(file_name: str):
     return int((dt - year_start).astype(int) + 1)
 
 
-def build_split_cache(lr_dir: Path, out_dir: Path, max_tiles: int = 0):
+def build_split_cache(
+    lr_dir: Path,
+    out_dir: Path,
+    max_tiles: int = 0,
+    valid_mask_band_count: int = 0,
+    reflectance_band_count: int = 0,
+):
     out_dir.mkdir(parents=True, exist_ok=True)
     grouped = group_lr_files_by_tile(lr_dir)
     tile_ids = sorted(grouped.keys())
@@ -52,10 +58,23 @@ def build_split_cache(lr_dir: Path, out_dir: Path, max_tiles: int = 0):
     print(f"[cache] tiles={len(tile_ids)}")
 
     for tile_id in tqdm(tile_ids, desc=f"build-cache:{lr_dir.parent.name}/{lr_dir.name}", dynamic_ncols=True):
-        build_one_tile_cache(tile_id, [str(p) for p in grouped[tile_id]], str(out_dir))
+        build_one_tile_cache(
+            tile_id,
+            [str(p) for p in grouped[tile_id]],
+            str(out_dir),
+            valid_mask_band_count,
+            reflectance_band_count,
+        )
 
 
-def build_split_cache_parallel(lr_dir: Path, out_dir: Path, max_tiles: int = 0, num_workers: int = 4):
+def build_split_cache_parallel(
+    lr_dir: Path,
+    out_dir: Path,
+    max_tiles: int = 0,
+    num_workers: int = 4,
+    valid_mask_band_count: int = 0,
+    reflectance_band_count: int = 0,
+):
     out_dir.mkdir(parents=True, exist_ok=True)
     grouped = group_lr_files_by_tile(lr_dir)
     tile_ids = sorted(grouped.keys())
@@ -71,7 +90,16 @@ def build_split_cache_parallel(lr_dir: Path, out_dir: Path, max_tiles: int = 0, 
     with ProcessPoolExecutor(max_workers=num_workers) as ex:
         for tile_id in tile_ids:
             files = [str(p) for p in grouped[tile_id]]
-            futures.append(ex.submit(build_one_tile_cache, tile_id, files, str(out_dir)))
+            futures.append(
+                ex.submit(
+                    build_one_tile_cache,
+                    tile_id,
+                    files,
+                    str(out_dir),
+                    valid_mask_band_count,
+                    reflectance_band_count,
+                )
+            )
 
         pbar = tqdm(total=len(futures), desc=f"build-cache:{lr_dir.parent.name}/{lr_dir.name}", dynamic_ncols=True)
         try:
@@ -84,7 +112,13 @@ def build_split_cache_parallel(lr_dir: Path, out_dir: Path, max_tiles: int = 0, 
             pbar.close()
 
 
-def build_one_tile_cache(tile_id: str, file_paths, out_dir: str):
+def build_one_tile_cache(
+    tile_id: str,
+    file_paths,
+    out_dir: str,
+    valid_mask_band_count: int = 0,
+    reflectance_band_count: int = 0,
+):
     try:
         file_names = []
         refl_list = []
@@ -95,8 +129,9 @@ def build_one_tile_cache(tile_id: str, file_paths, out_dir: str):
             p = Path(p_str)
             with rasterio.open(p) as src:
                 arr = src.read()  # (C,H,W)
-            refl = robust_per_image_normalize(arr).astype(np.float32)
-            hard_mask = (np.all(arr > 0, axis=0)).astype(np.float32)
+            refl_input = _select_reflectance_bands(arr, reflectance_band_count=reflectance_band_count)
+            refl = robust_per_image_normalize(refl_input).astype(np.float32)
+            hard_mask = _compute_hard_valid_mask(arr, valid_mask_band_count=valid_mask_band_count)
             doy = compute_day_of_year(p.name)
 
             file_names.append(p.name)
@@ -125,12 +160,35 @@ def main():
     parser.add_argument("--out_dir", type=str, required=True, help="Cache output directory")
     parser.add_argument("--max_tiles", type=int, default=0, help="Only cache first N tiles (0 means all)")
     parser.add_argument("--num_workers", type=int, default=1, help="Parallel workers for cache build")
+    parser.add_argument(
+        "--valid_mask_band_count",
+        type=int,
+        default=0,
+        help="Leading LR bands used for hard valid mask; 0 auto-detects and ignores trailing QA/mask-like bands.",
+    )
+    parser.add_argument(
+        "--reflectance_band_count",
+        type=int,
+        default=0,
+        help="Leading LR bands stored as model reflectance input; 0 keeps all LR bands.",
+    )
     args = parser.parse_args()
     if args.num_workers <= 1:
-        build_split_cache(Path(args.lr_dir), Path(args.out_dir), max_tiles=args.max_tiles)
+        build_split_cache(
+            Path(args.lr_dir),
+            Path(args.out_dir),
+            max_tiles=args.max_tiles,
+            valid_mask_band_count=args.valid_mask_band_count,
+            reflectance_band_count=args.reflectance_band_count,
+        )
     else:
         build_split_cache_parallel(
-            Path(args.lr_dir), Path(args.out_dir), max_tiles=args.max_tiles, num_workers=args.num_workers
+            Path(args.lr_dir),
+            Path(args.out_dir),
+            max_tiles=args.max_tiles,
+            num_workers=args.num_workers,
+            valid_mask_band_count=args.valid_mask_band_count,
+            reflectance_band_count=args.reflectance_band_count,
         )
 
 

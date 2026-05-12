@@ -93,11 +93,21 @@ class TrainerSRCNNBase:
                     pass
 
         num_gpus = torch.cuda.device_count()
-        if num_gpus > 1:
+        world_size = int(os.environ.get('WORLD_SIZE', '1'))
+        self.local_rank = 0
+        if world_size > 1:
             # 分布式训练初始化
-            dist.init_process_group(backend='nccl', rank=0, world_size=num_gpus)
-            self.rank = 0
-            self.num_gpus = num_gpus
+            local_rank = int(os.environ.get('LOCAL_RANK', 0))
+            self.local_rank = local_rank % max(num_gpus, 1)
+            if torch.cuda.is_available():
+                torch.cuda.set_device(self.local_rank)
+            dist.init_process_group(
+                timeout=datetime.timedelta(seconds=3600),
+                backend='nccl',
+                init_method='env://',
+            )
+            self.rank = int(os.environ.get('RANK', local_rank))
+            self.num_gpus = world_size
         else:
             # 单卡模式
             self.rank = 0
@@ -242,7 +252,7 @@ class TrainerSRCNNBase:
             
             # DDP包装（多GPU）
             if self.num_gpus > 1:
-                self.model = DDP(self.model, device_ids=[self.rank], find_unused_parameters=True)
+                self.model = DDP(self.model, device_ids=[self.local_rank], find_unused_parameters=True)
             
             if self.rank == 0:
                 self.logger.info(f"✅ Model initialized: {self.configs.model.target}")
@@ -286,7 +296,9 @@ class TrainerSRCNNBase:
         self.best_metric = 0.0
         self.iters_start = 0
         
-        if hasattr(self.configs, 'resume_path') and self.configs.resume_path:
+        if hasattr(self.configs, 'resume') and self.configs.resume:
+            ckpt_path = self.configs.resume
+        elif hasattr(self.configs, 'resume_path') and self.configs.resume_path:
             ckpt_path = self.configs.resume_path
         else:
             ckpt_path = None
@@ -295,7 +307,12 @@ class TrainerSRCNNBase:
             if self.rank == 0:
                 self.logger.info(f"📂 Resuming from checkpoint: {ckpt_path}")
             
-            ckpt = torch.load(ckpt_path, map_location='cuda' if torch.cuda.is_available() else 'cpu')
+            map_location = (
+                f"cuda:{self.local_rank}"
+                if torch.cuda.is_available()
+                else 'cpu'
+            )
+            ckpt = torch.load(ckpt_path, map_location=map_location)
             
             # 加载模型权重
             state_dict = ckpt.get('state_dict', ckpt)
@@ -304,7 +321,8 @@ class TrainerSRCNNBase:
                 name = k[7:] if k.startswith('module.') else k
                 unwrapped_state_dict[name] = v
             
-            self.model.load_state_dict(unwrapped_state_dict, strict=True)
+            model_to_load = self.model.module if isinstance(self.model, DDP) else self.model
+            model_to_load.load_state_dict(unwrapped_state_dict, strict=True)
             
             # 恢复优化器/迭代数/最佳指标
             if 'optimizer' in ckpt:
@@ -320,6 +338,10 @@ class TrainerSRCNNBase:
         if isinstance(data, dict):
             return {k: v.cuda(non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in data.items()}
         return data.cuda(non_blocking=True)
+
+    def _model_for_rank0_eval(self):
+        """Rank-0-only validation should bypass DDP wrapper to avoid DDP forward collectives."""
+        return self.model.module if isinstance(self.model, DDP) else self.model
 
     def save_ckpt(self, best=False):
         """保存检查点"""
@@ -455,24 +477,29 @@ class TrainerSRCNN(TrainerSRCNNBase):
                 target = self._resolve_target_tensor(data)
                 
                 # 【重要】SRCNN只接受单张量输入
-                predictions = self.model(srcnn_input)
+                eval_model = self._model_for_rank0_eval()
+                predictions = eval_model(srcnn_input)
                 
                 # 归一化到[0,1]用于指标计算
                 gt_01 = self.norm_for_vis(target)
                 pred_01 = self.norm_for_vis(predictions)
                 
-                # 转换为(H,W,C)格式
-                gt_numpy = gt_01.transpose(0, 2, 3, 1)[0]
-                pred_numpy = pred_01.transpose(0, 2, 3, 1)[0]
-                
-                # 计算多波段平均指标
-                psnr_val = np.mean([psnr(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0) for b in range(gt_numpy.shape[-1])])
-                ssim_val = np.mean([ssim(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0)[0] for b in range(gt_numpy.shape[-1])])
-                
-                all_metrics['psnr'].append(psnr_val)
-                all_metrics['ssim'].append(ssim_val)
-                all_metrics['ergas'].append(ergas(gt_numpy, pred_numpy))
-                all_metrics['sam'].append(sam(gt_numpy, pred_numpy))
+                # 转换为(B,H,W,C)格式，逐样本计算完整验证集指标
+                gt_numpy_batch = gt_01.transpose(0, 2, 3, 1)
+                pred_numpy_batch = pred_01.transpose(0, 2, 3, 1)
+
+                for batch_idx in range(gt_numpy_batch.shape[0]):
+                    gt_numpy = gt_numpy_batch[batch_idx]
+                    pred_numpy = pred_numpy_batch[batch_idx]
+
+                    # 计算多波段平均指标
+                    psnr_val = np.mean([psnr(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0) for b in range(gt_numpy.shape[-1])])
+                    ssim_val = np.mean([ssim(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0)[0] for b in range(gt_numpy.shape[-1])])
+
+                    all_metrics['psnr'].append(psnr_val)
+                    all_metrics['ssim'].append(ssim_val)
+                    all_metrics['ergas'].append(ergas(gt_numpy, pred_numpy))
+                    all_metrics['sam'].append(sam(gt_numpy, pred_numpy))
                 
                 # 可视化第一个样本
                 if ii == 0 and self.configs.train.get('local_logging', False):
@@ -550,7 +577,8 @@ class TrainerSRCNN(TrainerSRCNNBase):
             srcnn_input = self._resolve_input_tensor(data)
             
             # 【重要】SRCNN只接受单张量输入
-            predictions = self.model(srcnn_input)
+            eval_model = self._model_for_rank0_eval()
+            predictions = eval_model(srcnn_input)
             
             self.visualize_validation_sample(data, predictions, 0)
             self.logger.info(f"✅ Baseline visualization saved")
@@ -662,16 +690,32 @@ class TrainerSRCNN(TrainerSRCNNBase):
                     )
                 
                 # 验证
-                if self.current_iters % val_freq == 0 and self.rank == 0:
-                    self.logger.info(f"🧪 Validation start @ iter {self.current_iters}")
-                    avg_psnr = self.validation()
-                    self.adjust_lr(avg_psnr)
-                    self.logger.info(f"🧪 Validation done @ iter {self.current_iters} | psnr={avg_psnr:.4f}")
-                    if avg_psnr > self.best_metric:
-                        self.best_metric = avg_psnr
-                        self.logger.info(f"🏆 New best metric: {self.best_metric:.4f} | Saving best model...")
-                        self.save_ckpt(best=True)
-                    self.model.train()
+                if self.current_iters % val_freq == 0:
+                    if self.num_gpus > 1:
+                        dist.barrier()
+                    avg_psnr = None
+                    if self.rank == 0:
+                        self.logger.info(f"🧪 Validation start @ iter {self.current_iters}")
+                        avg_psnr = self.validation()
+                        self.logger.info(f"🧪 Validation done @ iter {self.current_iters} | psnr={avg_psnr:.4f}")
+                    if self.num_gpus > 1:
+                        metric_tensor = torch.tensor(
+                            [float(avg_psnr) if avg_psnr is not None else float('nan')],
+                            device=torch.device('cuda', self.local_rank),
+                        )
+                        dist.broadcast(metric_tensor, src=0)
+                        avg_psnr = float(metric_tensor.item())
+                    if avg_psnr is not None and math.isfinite(avg_psnr):
+                        self.adjust_lr(avg_psnr)
+                        if avg_psnr > self.best_metric:
+                            self.best_metric = avg_psnr
+                            if self.rank == 0:
+                                self.logger.info(f"🏆 New best metric: {self.best_metric:.4f} | Saving best model...")
+                                self.save_ckpt(best=True)
+                    if self.rank == 0:
+                        self.model.train()
+                    if self.num_gpus > 1:
+                        dist.barrier()
                 
                 # 保存检查点
                 if self.current_iters % save_freq == 0:

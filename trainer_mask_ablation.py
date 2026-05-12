@@ -89,6 +89,17 @@ class TrainerAlphaSRMaskAblation(TrainerAlphaSR):
                 )
 
             mask_bchw = mask_b1hw.expand(-1, predictions.shape[1], -1, -1)
+            if (
+                self.rank == 0
+                and int(self.configs.train.get('debug_batch_log_freq', 0) or 0) > 0
+                and (self.current_iters <= 5 or self.current_iters % int(self.configs.train.get('debug_batch_log_freq', 1)) == 0)
+            ):
+                self.logger.info(
+                    f"🔎 train mask debug iter={self.current_iters} "
+                    f"reduce={self.configs.train.get('indicating_mask_reduce', 'prob_or')} "
+                    f"mask_mean={mask_b1hw.detach().float().mean().item():.4f} "
+                    f"mask_gt_0.5={(mask_b1hw.detach().float() > 0.5).float().mean().item():.4f}"
+                )
 
             valid_pixels = mask_bchw.sum()
             if valid_pixels <= 0:
@@ -104,6 +115,8 @@ class TrainerAlphaSRMaskAblation(TrainerAlphaSR):
             loss = loss * (predictions.numel() / valid_pixels)
         else:
             loss = self.criterion(predictions, gt)
+
+        self._log_batch_debug(data, predictions=predictions, loss=loss, phase='train')
 
         if not torch.isfinite(loss).all():
             if self.rank == 0:
@@ -203,6 +216,8 @@ class TrainerAlphaSRMaskTemporalLossAblation(TrainerAlphaSRMaskAblation):
                 loss = (losses * weights).sum() / denom
             else:
                 raise ValueError(f"Unknown temporal_loss_reduce strategy: {temporal_loss_reduce}")
+
+        self._log_batch_debug(data, predictions=predictions, loss=loss, phase='train')
 
         if not torch.isfinite(loss).all():
             if self.rank == 0:

@@ -69,9 +69,30 @@ class TrainerAlphaSRPostV2(TrainerAlphaSR):
         use_ind_mask = self.configs.train.get("use_indicating_mask_in_training", False)
         if use_ind_mask and data.get("indicating_mask") is not None:
             ind_mask = data["indicating_mask"].float()
-            if ind_mask.ndim == 3:
-                ind_mask = ind_mask.unsqueeze(0)
-            spatial_mask = ind_mask.max(dim=1, keepdim=True)[0].clamp(0, 1)
+            if ind_mask.ndim == 5:
+                if ind_mask.shape[1] == 1:
+                    ind_mask = ind_mask.squeeze(1)
+                elif ind_mask.shape[2] == 1:
+                    ind_mask = ind_mask.squeeze(2)
+                else:
+                    raise ValueError(f"Unsupported indicating_mask shape: {tuple(ind_mask.shape)}")
+            elif ind_mask.ndim == 3:
+                if ind_mask.shape[0] == predictions.shape[0]:
+                    ind_mask = ind_mask.unsqueeze(1)
+                else:
+                    ind_mask = ind_mask.unsqueeze(0)
+            elif ind_mask.ndim != 4:
+                raise ValueError(f"Unexpected indicating_mask ndim={ind_mask.ndim}, shape={tuple(ind_mask.shape)}")
+
+            if ind_mask.shape[0] != predictions.shape[0]:
+                if ind_mask.shape[0] == 1:
+                    ind_mask = ind_mask.expand(predictions.shape[0], -1, -1, -1)
+                else:
+                    raise ValueError(
+                        f"Batch mismatch between indicating_mask ({ind_mask.shape[0]}) and predictions ({predictions.shape[0]})"
+                    )
+
+            spatial_mask = self._reduce_temporal_mask(ind_mask)
             if spatial_mask.shape[-2:] != predictions.shape[-2:]:
                 spatial_mask = F.interpolate(
                     spatial_mask,
@@ -110,45 +131,76 @@ class TrainerAlphaSRPostV2(TrainerAlphaSR):
             for ii, data in enumerate(pbar):
                 data = self.prepare_data(data)
                 self._set_post_context(stage="val", batch_size=data["gt"].shape[0])
-                predictions = self.model(data)
+                eval_model = self._model_for_rank0_eval()
+                predictions = eval_model(data)
 
                 gt_01 = self.norm_for_vis(data["gt"])
                 pred_01 = self.norm_for_vis(predictions)
 
-                gt_numpy = gt_01.transpose(0, 2, 3, 1)[0]
-                pred_numpy = pred_01.transpose(0, 2, 3, 1)[0]
+                gt_numpy_batch = gt_01.transpose(0, 2, 3, 1)
+                pred_numpy_batch = pred_01.transpose(0, 2, 3, 1)
 
-                psnr_val = np.mean([psnr(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0) for b in range(gt_numpy.shape[-1])])
-                ssim_val = np.mean([ssim(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0)[0] for b in range(gt_numpy.shape[-1])])
+                ind_mask = data.get("indicating_mask", None)
+                if ind_mask is not None:
+                    ind_mask = ind_mask.float()
+                    if ind_mask.ndim == 5:
+                        if ind_mask.shape[1] == 1:
+                            ind_mask = ind_mask.squeeze(1)
+                        elif ind_mask.shape[2] == 1:
+                            ind_mask = ind_mask.squeeze(2)
+                        else:
+                            raise ValueError(f"Unsupported indicating_mask shape: {tuple(ind_mask.shape)}")
+                    elif ind_mask.ndim == 3:
+                        if ind_mask.shape[0] == gt_numpy_batch.shape[0]:
+                            ind_mask = ind_mask.unsqueeze(1)
+                        else:
+                            ind_mask = ind_mask.unsqueeze(0)
+                    elif ind_mask.ndim != 4:
+                        raise ValueError(f"Unexpected indicating_mask shape: {tuple(ind_mask.shape)}")
+                    if ind_mask.shape[0] != gt_numpy_batch.shape[0]:
+                        if ind_mask.shape[0] == 1:
+                            ind_mask = ind_mask.expand(gt_numpy_batch.shape[0], -1, -1, -1)
+                        else:
+                            raise ValueError(
+                                f"Batch mismatch between indicating_mask ({ind_mask.shape[0]}) "
+                                f"and validation batch ({gt_numpy_batch.shape[0]})"
+                            )
+                    spatial_masks = self._reduce_temporal_mask(ind_mask)
+                else:
+                    spatial_masks = None
 
-                all_metrics["psnr"].append(psnr_val)
-                all_metrics["ssim"].append(ssim_val)
-                all_metrics["ergas"].append(ergas(gt_numpy, pred_numpy))
-                all_metrics["sam"].append(sam(gt_numpy, pred_numpy))
+                for batch_idx in range(gt_numpy_batch.shape[0]):
+                    gt_numpy = gt_numpy_batch[batch_idx]
+                    pred_numpy = pred_numpy_batch[batch_idx]
 
-                if data.get("indicating_mask") is not None:
-                    ind_mask = data["indicating_mask"].float()
-                    if ind_mask.ndim == 3:
-                        ind_mask = ind_mask.unsqueeze(0)
-                    spatial_mask = ind_mask[0].max(dim=0, keepdim=True)[0].unsqueeze(0)
-                    pred_h, pred_w = pred_numpy.shape[0], pred_numpy.shape[1]
-                    if spatial_mask.shape[-2:] != (pred_h, pred_w):
-                        spatial_mask = F.interpolate(
-                            spatial_mask,
-                            size=(pred_h, pred_w),
-                            mode="bilinear",
-                            align_corners=False,
-                        )
-                    spatial_mask_np = spatial_mask.squeeze(0).squeeze(0).cpu().numpy() > 0.5
-                    if spatial_mask_np.sum() > 0:
-                        per_band_mpsnr = []
-                        for b in range(gt_numpy.shape[-1]):
-                            diff_sq = (gt_numpy[:, :, b][spatial_mask_np] - pred_numpy[:, :, b][spatial_mask_np]) ** 2
-                            mse = diff_sq.mean()
-                            if mse > 0:
-                                per_band_mpsnr.append(20.0 * np.log10(1.0 / np.sqrt(mse)))
-                        if per_band_mpsnr:
-                            all_metrics["masked_psnr"].append(float(np.mean(per_band_mpsnr)))
+                    psnr_val = np.mean([psnr(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0) for b in range(gt_numpy.shape[-1])])
+                    ssim_val = np.mean([ssim(gt_numpy[:, :, b], pred_numpy[:, :, b], MAX=1.0)[0] for b in range(gt_numpy.shape[-1])])
+
+                    all_metrics["psnr"].append(psnr_val)
+                    all_metrics["ssim"].append(ssim_val)
+                    all_metrics["ergas"].append(ergas(gt_numpy, pred_numpy))
+                    all_metrics["sam"].append(sam(gt_numpy, pred_numpy))
+
+                    if spatial_masks is not None:
+                        spatial_mask = spatial_masks[batch_idx:batch_idx + 1]
+                        pred_h, pred_w = pred_numpy.shape[0], pred_numpy.shape[1]
+                        if spatial_mask.shape[-2:] != (pred_h, pred_w):
+                            spatial_mask = F.interpolate(
+                                spatial_mask,
+                                size=(pred_h, pred_w),
+                                mode="bilinear",
+                                align_corners=False,
+                            )
+                        spatial_mask_np = spatial_mask.squeeze(0).squeeze(0).cpu().numpy() > 0.5
+                        if spatial_mask_np.sum() > 0:
+                            per_band_mpsnr = []
+                            for b in range(gt_numpy.shape[-1]):
+                                diff_sq = (gt_numpy[:, :, b][spatial_mask_np] - pred_numpy[:, :, b][spatial_mask_np]) ** 2
+                                mse = diff_sq.mean()
+                                if mse > 0:
+                                    per_band_mpsnr.append(20.0 * np.log10(1.0 / np.sqrt(mse)))
+                            if per_band_mpsnr:
+                                all_metrics["masked_psnr"].append(float(np.mean(per_band_mpsnr)))
 
                 if ii == 0 and self.configs.train.get("local_logging", False):
                     self.visualize_validation_sample(data, predictions, ii)

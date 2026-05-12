@@ -10,5 +10,10 @@ export CUDA_VISIBLE_DEVICES="${GPU_ID}"
 echo "[train.sh] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 python -c "import torch; print('[train.sh] cuda_available=', torch.cuda.is_available(), 'device_count=', torch.cuda.device_count(), 'current=', torch.cuda.current_device() if torch.cuda.is_available() else None)"
 
+if [[ "${MODE}" == "train" ]]; then
+  echo "[train.sh] CPU split diagnostics: python scripts/diagnose_dataset_splits.py --cfg_path ${CFG_PATH}"
+  CUDA_VISIBLE_DEVICES="" python scripts/diagnose_dataset_splits.py --cfg_path "${CFG_PATH}" --max_samples "${SPLIT_DIAG_MAX_SAMPLES:-8}" || true
+fi
+
 echo "[train.sh] Run: python main.py --cfg_path ${CFG_PATH} --mode ${MODE}"
 python main.py --cfg_path "${CFG_PATH}" --mode "${MODE}"

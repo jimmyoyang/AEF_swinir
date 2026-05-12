@@ -31,12 +31,23 @@ data:
       lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/LR"
       # hr_dir: "./data/processed_data_SR_10m_2/train/HR"
       hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/train/HR"
-      sample_num: 16      
+      # Use a deterministic random subset instead of the first 16 sorted tiles.
+      # 1024 tiles keeps the run tractable while avoiding the full-batch memorization
+      # seen in debug_0512.log.
+      pre_filter_sample_num: 4096
+      pre_filter_seed: 42
+      sample_num: 1024
       enable_hr_zero_filter: true
       hr_zero_ratio_filter_threshold: 0.05
       hr_zero_ratio_manifest: "./patch_stats.log"
       cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/train"
-      use_tile_cache: true  
+      mask_cache_dir: "./tmp/mask_cache/ablation_4f/train"
+      hard_mask_cache_dir: "./tmp/mask_cache/ablation_4f/train"
+      hr_cache_dir: "./tmp/mask_cache/ablation_4f/train"
+      valid_mask_band_count: 9
+      reflectance_band_count: 9
+      use_tile_cache: true
+      sample_cache_mem_size: 0
   val:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
@@ -44,23 +55,39 @@ data:
       lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/LR"
       # hr_dir: "./data/processed_data_SR_10m_2/val/HR"
       hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/val/HR"
-      sample_num: 8
+      pre_filter_sample_num: 512
+      pre_filter_seed: 43
+      sample_num: 64
       enable_hr_zero_filter: true
       hr_zero_ratio_filter_threshold: 0.05
       hr_zero_ratio_manifest: "./patch_stats.log"
       cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/val"
-      use_tile_cache: true  
+      mask_cache_dir: "./tmp/mask_cache/ablation_4f/val"
+      hard_mask_cache_dir: "./tmp/mask_cache/ablation_4f/val"
+      hr_cache_dir: "./tmp/mask_cache/ablation_4f/val"
+      valid_mask_band_count: 9
+      reflectance_band_count: 9
+      use_tile_cache: true
+      sample_cache_mem_size: 64
   test:
     target: datapipe.datasets.AnytimeTemporalDataset
     params:
-      lr_dir: "./data/processed_data/test/LR"
-      hr_dir: "./data/processed_data/test/HR"
+      lr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/LR"
+      hr_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/test/HR"
       enable_hr_zero_filter: true
       hr_zero_ratio_filter_threshold: 0.05
       hr_zero_ratio_manifest: "./patch_stats.log"
-      sample_num: 8      
-      # cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data/cache/test"
-      # use_tile_cache: true
+      pre_filter_sample_num: 512
+      pre_filter_seed: 44
+      sample_num: 64
+      cache_dir: "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/processed_data_SR_10m_filer/cache/test"
+      mask_cache_dir: "./tmp/mask_cache/ablation_4f/test"
+      hard_mask_cache_dir: "./tmp/mask_cache/ablation_4f/test"
+      hr_cache_dir: "./tmp/mask_cache/ablation_4f/test"
+      valid_mask_band_count: 9
+      reflectance_band_count: 9
+      use_tile_cache: true
+      sample_cache_mem_size: 64
 
 trainer:
   target: trainer_mask_ablation.TrainerAlphaSRMaskAblation
@@ -85,32 +112,39 @@ features:
       soft_mask_sigma: 2.0
 
 train:
-  save_dir: "./training_logs/experiments/ablation_4f_mask_prob_or_learnable_pos_no_cross"
-  # batch: [1, 1]
-  batch: [16, 8]
+  save_dir: "./training_logs/experiments/ablation_4f_mask_mean_learnable_pos_no_cross"
+  batch: [4, 8]
   iterations: 20000
-  lr: 0.0001
+  lr: 0.00005
   # 实际仅用 ReduceLROnPlateau(mode=max)，监控验证 PSNR；仅当 PSNR 连续 patience 次未创新高时才乘 factor 降 LR。
   # 若 PSNR 每次微涨则 LR 长期不降：可降低 patience、或加大 threshold（避免噪声算“提升”）、或略增大 val_freq。
   lr_schedule: "ReduceLROnPlateau"
   lr_schedule_params:
-    patience: 3
+    patience: 2
     factor: 0.5
-    threshold: 0.02
+    threshold: 0.01
     threshold_mode: abs
     min_lr: 1.0e-6
   lr_min: 0.000001
-  weight_decay: 0.0
+  weight_decay: 0.0001
   global_seeding: true
   seed: 42
-  # num_workers: 4
-  num_workers: 0
+  num_workers: 4
+  val_num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
   log_freq: [100, 200, 200]
   save_freq: 500
   val_freq: 500
   rgb_chn: [2, 1, 0]
   local_logging: true
-  indicating_mask_reduce: "prob_or"
+  indicating_mask_reduce: "mean"
+  debug_batch_log_freq: 500
+  debug_batch_log_max: 8
+  val_debug_max_samples: 8
+  val_compute_expensive_metrics: false
+  val_timing_log: true
 
 inference:
   padding_offset: 16

@@ -113,6 +113,8 @@ class PreprocessedTileDataset(torch.utils.data.Dataset):
 
 import os
 import re
+import json
+import hashlib
 import random
 import time
 import torch
@@ -323,6 +325,76 @@ def _extract_softmask_from_lr_if_possible(reflectance_data):
     return _normalize_softmask_values(candidate)
 
 
+def _infer_valid_mask_band_count(reflectance_data):
+    """Infer how many leading LR bands should contribute to reflectance validity."""
+    band_count = int(reflectance_data.shape[0])
+    if band_count <= 1:
+        return band_count
+
+    candidate = reflectance_data[-1].astype(np.float32)
+    finite = candidate[np.isfinite(candidate)]
+    if finite.size == 0:
+        return band_count - 1
+
+    c_min = float(np.min(finite))
+    c_max = float(np.max(finite))
+    unique_count = int(np.unique(np.round(finite, 3)).size)
+
+    # Many processed LR tiles carry a trailing QA/cloud-mask-like band. It can be
+    # all-zero after min-max normalization, so including it in np.all(arr > 0)
+    # makes an otherwise valid timestep look completely invalid.
+    if 0.0 <= c_min <= 3.0 and 0.0 <= c_max <= 3.0 and unique_count <= 8:
+        return band_count - 1
+
+    return band_count
+
+
+def _compute_hard_valid_mask(reflectance_data, valid_mask_band_count=0):
+    if valid_mask_band_count and int(valid_mask_band_count) > 0:
+        band_count = min(int(valid_mask_band_count), int(reflectance_data.shape[0]))
+    else:
+        band_count = _infer_valid_mask_band_count(reflectance_data)
+
+    if band_count <= 0:
+        return np.zeros(reflectance_data.shape[-2:], dtype=np.float32)
+
+    reflectance_bands = reflectance_data[:band_count]
+    valid = np.all(np.isfinite(reflectance_bands) & (reflectance_bands > 0), axis=0)
+    return valid.astype(np.float32)
+
+
+def _select_reflectance_bands(reflectance_data, reflectance_band_count=0):
+    """Return the bands that should be treated as physical LR reflectance."""
+    band_count = int(reflectance_band_count or 0)
+    if band_count <= 0:
+        return reflectance_data
+    if reflectance_data.ndim == 4:
+        band_count = min(band_count, int(reflectance_data.shape[1]))
+        return reflectance_data[:, :band_count, ...]
+    band_count = min(band_count, int(reflectance_data.shape[0]))
+    return reflectance_data[:band_count, ...]
+
+
+def _stable_file_list_hash(file_names):
+    blob = "\n".join(str(name) for name in file_names)
+    return hashlib.md5(blob.encode("utf-8")).hexdigest()[:10]
+
+
+def _atomic_save_npy(path, array):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.stem}.{os.getpid()}.{time.time_ns()}.tmp.npy")
+    try:
+        np.save(tmp_path, array)
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+
+
 def _pad_or_truncate_temporal_sample(sample, fixed_temporal_len):
     if fixed_temporal_len is None:
         return sample
@@ -396,13 +468,46 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
             self.mask_config.get('cloud_mask_pattern', '{date}_tile_{tile_id}_SoftMask.tif')
         )
         self.cloud_mask_dir = Path(self.cloud_mask_dir) if self.cloud_mask_dir else None
+        mask_cache_payload = {
+            'version': 2,
+            'mask_type': self.mask_type,
+            'use_advanced_processor': self.use_advanced_processor,
+            'processor': dict(self.mask_processor_config),
+            'valid_mask_band_count': int(params.get('valid_mask_band_count', 0)),
+        }
+        mask_cache_blob = json.dumps(mask_cache_payload, sort_keys=True, default=str)
+        self.mask_cache_key = hashlib.md5(mask_cache_blob.encode('utf-8')).hexdigest()[:10]
         
         self.need_path = params.get('need_path', False)
-        self.fixed_temporal_len = int(params.get('fixed_temporal_len', 20))
+        fixed_temporal_len = params.get('fixed_temporal_len', 20)
+        self.fixed_temporal_len = (
+            None if fixed_temporal_len is None or int(fixed_temporal_len) <= 0
+            else int(fixed_temporal_len)
+        )
         self.cache_dir = Path(params['cache_dir']) if params.get('cache_dir') else None
         self.use_tile_cache = bool(params.get('use_tile_cache', self.cache_dir is not None))
+        mask_cache_dir = params.get('mask_cache_dir', None)
+        self.mask_cache_dir = Path(mask_cache_dir) if mask_cache_dir else self.cache_dir
+        hard_mask_cache_dir = params.get('hard_mask_cache_dir', mask_cache_dir)
+        self.hard_mask_cache_dir = Path(hard_mask_cache_dir) if hard_mask_cache_dir else None
+        hr_cache_dir = params.get('hr_cache_dir', mask_cache_dir)
+        self.hr_cache_dir = Path(hr_cache_dir) if hr_cache_dir else None
+        self.valid_mask_band_count = int(params.get('valid_mask_band_count', 0))
+        self.reflectance_band_count = int(params.get('reflectance_band_count', 0))
+        self.use_hard_mask_cache = bool(params.get('use_hard_mask_cache', self.hard_mask_cache_dir is not None))
+        self.use_hr_cache = bool(params.get('use_hr_cache', self.hr_cache_dir is not None))
+        hard_cache_payload = {
+            'version': 2,
+            'valid_mask_band_count': self.valid_mask_band_count,
+        }
+        self.hard_mask_cache_key = hashlib.md5(
+            json.dumps(hard_cache_payload, sort_keys=True).encode('utf-8')
+        ).hexdigest()[:10]
+        self.hr_cache_key = hashlib.md5(b"hr_robust_per_image_normalize_v1_lo1_hi99").hexdigest()[:10]
         self.tile_cache_mem_size = int(params.get('tile_cache_mem_size', 64))
         self.slow_sample_warn_sec = float(params.get('slow_sample_warn_sec', 1.5))
+        self.slow_sample_warn_max = int(params.get('slow_sample_warn_max', 5))
+        self._slow_sample_warn_count = 0
         self.max_timesteps_per_sample = int(params.get('max_timesteps_per_sample', 0))
         self._tile_cache_mem = OrderedDict()
 
@@ -413,6 +518,14 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         self.pre_filter_seed = int(params.get('pre_filter_seed', 0))
         sample_num = params.get('sample_num', None)
         self._target_sample_num = sample_num if (sample_num and sample_num > 0) else None
+        default_sample_cache_size = (
+            int(self._target_sample_num)
+            if self._target_sample_num is not None and int(self._target_sample_num) <= 256
+            else 0
+        )
+        self.sample_cache_mem_size = int(params.get('sample_cache_mem_size', default_sample_cache_size))
+        self.use_sample_cache = bool(params.get('use_sample_cache', self.sample_cache_mem_size > 0))
+        self._sample_cache_mem = OrderedDict()
         self._pair_zero_ratio_map = _load_hr_zero_ratio_manifest(self.hr_zero_ratio_manifest) if self.enable_hr_zero_filter else {}
         self._tile_to_lr_files = defaultdict(list)
 
@@ -479,6 +592,14 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                 self.tile_ids = self.tile_ids[: self._target_sample_num]
         
         print(f"[Dataset INFO] Initialized for {len(self.tile_ids)} tile locations.")
+        if self.tile_ids:
+            preview_ids = self.tile_ids[: min(8, len(self.tile_ids))]
+            print(
+                f"  - Tile IDs Preview: first={preview_ids} "
+                f"last={self.tile_ids[-1]} total={len(self.tile_ids)}"
+            )
+        else:
+            print("  - Tile IDs Preview: EMPTY")
         print(f"  - Time Feature Injection: {'Enabled' if self.use_time_band else 'Disabled'}")
         print(f"  - Mask Feature Injection: {'Enabled' if self.use_mask_band else 'Disabled'}")
         if self.use_mask_band:
@@ -486,8 +607,32 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
             print(f"  - Use Advanced Processor: {self.use_advanced_processor}")
             if self.cloud_mask_dir:
                 print(f"  - External Cloud Mask Dir: {self.cloud_mask_dir}")
+        if self.reflectance_band_count > 0:
+            print(f"  - Reflectance Input Bands: first {self.reflectance_band_count}")
+        self.can_use_tile_cache = (
+            self.use_tile_cache
+            and self.cache_dir is not None
+            and (self.cloud_mask_dir is None)
+        )
         if self.use_tile_cache:
-            print(f"  - Tile Cache: Enabled ({self.cache_dir})")
+            if self.can_use_tile_cache:
+                print(f"  - Tile Cache: Active ({self.cache_dir})")
+                if self.use_hard_mask_cache and self.hard_mask_cache_dir is not None:
+                    print(
+                        f"  - Hard Mask Sidecar Cache: Enabled "
+                        f"({self.hard_mask_cache_dir}, key={self.hard_mask_cache_key})"
+                    )
+                if self.use_mask_band and (self.mask_type == 'soft' or self.use_advanced_processor):
+                    print(f"  - Mask Sidecar Cache: Enabled ({self.mask_cache_dir}, key={self.mask_cache_key})")
+            else:
+                print(
+                    "  - Tile Cache: Bypassed "
+                    f"(cache_dir={self.cache_dir}, cloud_mask_dir={self.cloud_mask_dir})"
+                )
+        if self.use_hr_cache and self.hr_cache_dir is not None:
+            print(f"  - HR Cache: Enabled ({self.hr_cache_dir}, key={self.hr_cache_key})")
+        if self.use_sample_cache and self.sample_cache_mem_size > 0:
+            print(f"  - Processed Sample Cache: Enabled (LRU size={self.sample_cache_mem_size})")
         if self.max_timesteps_per_sample > 0:
             print(f"  - Max Timesteps Per Sample: {self.max_timesteps_per_sample} (latest)")
         print("[Dataset INFO] AnytimeTemporalDataset __init__: done")
@@ -526,6 +671,14 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                 reflectance_norm = cached['reflectance_norm'].astype(np.float32)
                 hard_valid_mask = cached['hard_valid_mask'].astype(np.float32)
                 day_of_year = cached['day_of_year'].astype(np.float32)
+            corrected_hard_mask = self._load_or_build_hard_mask_cache(tile_id, file_names)
+            if corrected_hard_mask is not None and corrected_hard_mask.shape == hard_valid_mask.shape:
+                hard_valid_mask = corrected_hard_mask
+            if self.reflectance_band_count > 0:
+                reflectance_norm = _select_reflectance_bands(
+                    reflectance_norm,
+                    reflectance_band_count=self.reflectance_band_count,
+                )
             payload = (file_names, reflectance_norm, hard_valid_mask, day_of_year)
             if self.tile_cache_mem_size > 0:
                 self._tile_cache_mem[tile_id] = payload
@@ -535,18 +688,198 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         except Exception:
             return None
 
+    def _hard_mask_cache_paths(self, tile_id):
+        base = self.hard_mask_cache_dir / f"tile_{tile_id}_hardmask_{self.hard_mask_cache_key}"
+        return Path(str(base) + "_valid.npy"), Path(str(base) + "_names.txt")
+
+    def _load_or_build_hard_mask_cache(self, tile_id, file_names):
+        if (
+            not self.use_hard_mask_cache
+            or self.hard_mask_cache_dir is None
+            or self.cloud_mask_dir is not None
+        ):
+            return None
+
+        mask_path, names_path = self._hard_mask_cache_paths(tile_id)
+        if mask_path.exists() and names_path.exists():
+            try:
+                with names_path.open("r", encoding="utf-8") as f:
+                    cached_names = [line.strip() for line in f if line.strip()]
+                hard_mask = np.load(mask_path, allow_pickle=False).astype(np.float32)
+                if cached_names == list(file_names) and hard_mask.shape[0] == len(file_names):
+                    return hard_mask
+            except Exception:
+                pass
+
+        hard_mask_list = []
+        try:
+            for fname in file_names:
+                raw_path = self.lr_dir / fname
+                with rasterio.open(raw_path) as src:
+                    reflectance_data = src.read()
+                hard_mask_list.append(
+                    _compute_hard_valid_mask(
+                        reflectance_data,
+                        valid_mask_band_count=self.valid_mask_band_count,
+                    ).astype(np.float32)
+                )
+
+            hard_mask_arr = np.stack(hard_mask_list, axis=0).astype(np.float16)
+            try:
+                self.hard_mask_cache_dir.mkdir(parents=True, exist_ok=True)
+                _atomic_save_npy(mask_path, hard_mask_arr)
+                tmp_names = names_path.with_name(
+                    f".{names_path.stem}.{os.getpid()}.{time.time_ns()}.tmp"
+                )
+                try:
+                    with tmp_names.open("w", encoding="utf-8") as f:
+                        for name in file_names:
+                            f.write(str(name) + "\n")
+                    os.replace(tmp_names, names_path)
+                finally:
+                    if tmp_names.exists():
+                        tmp_names.unlink()
+            except Exception as e:
+                print(f"[Dataset WARN] Failed to write hard mask sidecar cache for tile={tile_id}: {e}")
+            return hard_mask_arr.astype(np.float32)
+        except Exception as e:
+            print(f"[Dataset WARN] Failed to build hard mask sidecar cache for tile={tile_id}: {e}")
+            return None
+
+    def _mask_cache_paths(self, tile_id, file_names):
+        file_key = _stable_file_list_hash(file_names)
+        base = self.mask_cache_dir / f"tile_{tile_id}_mask_{self.mask_cache_key}_{file_key}"
+        return (
+            Path(str(base) + "_prob.npy"),
+            Path(str(base) + "_valid.npy"),
+        )
+
+    def _load_or_build_mask_cache(self, tile_id, file_names, hard_valid_mask):
+        if (
+            self.mask_cache_dir is None
+            or not self.use_mask_band
+            or not (self.mask_type == 'soft' or self.use_advanced_processor)
+            or self.cloud_mask_dir is not None
+        ):
+            return None, None
+
+        mask_path, valid_path = self._mask_cache_paths(tile_id, file_names)
+        if mask_path.exists() and valid_path.exists():
+            try:
+                mask_prob = np.load(mask_path, allow_pickle=False).astype(np.float32)
+                time_valid = np.load(valid_path, allow_pickle=False).astype(np.float32)
+                if mask_prob.shape[0] == len(file_names) and time_valid.shape[0] == len(file_names):
+                    return mask_prob, time_valid
+            except Exception:
+                pass
+
+        mask_prob_list = []
+        time_valid_list = []
+        try:
+            for idx, fname in enumerate(file_names):
+                raw_path = self.lr_dir / fname
+                with rasterio.open(raw_path) as src:
+                    reflectance_data = src.read()
+                    h, w = src.height, src.width
+
+                hard_valid = hard_valid_mask[idx].astype(np.float32)
+                mask_prob = hard_valid.copy()
+                soft_mask_raw = None
+                has_soft_mask_source = False
+
+                if self.mask_type == 'soft':
+                    loaded = _extract_softmask_from_lr_if_possible(reflectance_data)
+                    if loaded is not None:
+                        soft_mask_raw = loaded
+                        has_soft_mask_source = True
+                        loaded = _normalize_softmask_values(loaded)
+                        mask_prob = _safe_resize_mask(loaded, h, w)
+
+                time_is_valid = bool(float(hard_valid.mean()) > 1e-6)
+                if (
+                    self.use_advanced_processor
+                    and self.cloud_mask_processor is not None
+                    and has_soft_mask_source
+                ):
+                    processor_input = soft_mask_raw
+                    mask_prob, processor_meta = self.cloud_mask_processor.process_pixel_mask(
+                        processor_input,
+                        reflectance_data=reflectance_data,
+                    )
+                    time_is_valid = bool(processor_meta.get('is_valid', time_is_valid))
+
+                mask_prob_list.append(mask_prob.astype(np.float32))
+                time_valid_list.append(1.0 if time_is_valid else 0.0)
+
+            mask_prob_arr = np.stack(mask_prob_list, axis=0).astype(np.float16)
+            time_valid_arr = np.asarray(time_valid_list, dtype=np.float16)
+            try:
+                _atomic_save_npy(mask_path, mask_prob_arr)
+                _atomic_save_npy(valid_path, time_valid_arr)
+            except Exception as e:
+                print(f"[Dataset WARN] Failed to write mask sidecar cache for tile={tile_id}: {e}")
+            return mask_prob_arr.astype(np.float32), time_valid_arr.astype(np.float32)
+        except Exception as e:
+            print(f"[Dataset WARN] Failed to build mask sidecar cache for tile={tile_id}: {e}")
+            return None, None
+
+    def _hr_cache_path(self, target_hr_path):
+        return self.hr_cache_dir / f"{target_hr_path.stem}_hr_{self.hr_cache_key}.npy"
+
+    def _load_or_build_hr_tensor(self, target_hr_path):
+        if self.use_hr_cache and self.hr_cache_dir is not None:
+            hr_cache_path = self._hr_cache_path(target_hr_path)
+            if hr_cache_path.exists():
+                try:
+                    cached_hr = np.load(hr_cache_path, allow_pickle=False).astype(np.float32)
+                    return torch.from_numpy(cached_hr).float()
+                except Exception:
+                    pass
+
+        with rasterio.open(target_hr_path) as src:
+            hr_img = src.read()
+        hr_norm = robust_per_image_normalize(hr_img).astype(np.float32)
+
+        if self.use_hr_cache and self.hr_cache_dir is not None:
+            try:
+                _atomic_save_npy(self._hr_cache_path(target_hr_path), hr_norm.astype(np.float16))
+            except Exception as e:
+                print(f"[Dataset WARN] Failed to write HR cache for {target_hr_path.name}: {e}")
+
+        return torch.from_numpy(hr_norm).float()
+
+    @staticmethod
+    def _clone_sample(sample):
+        return {
+            k: (v.clone() if torch.is_tensor(v) else v)
+            for k, v in sample.items()
+        }
+
+    def _get_processed_sample_cache(self, tile_id):
+        if not self.use_sample_cache or self.sample_cache_mem_size <= 0:
+            return None
+        sample = self._sample_cache_mem.get(tile_id)
+        if sample is None:
+            return None
+        self._sample_cache_mem.move_to_end(tile_id)
+        return self._clone_sample(sample)
+
+    def _put_processed_sample_cache(self, tile_id, sample):
+        if not self.use_sample_cache or self.sample_cache_mem_size <= 0:
+            return
+        self._sample_cache_mem[tile_id] = self._clone_sample(sample)
+        self._sample_cache_mem.move_to_end(tile_id)
+        while len(self._sample_cache_mem) > self.sample_cache_mem_size:
+            self._sample_cache_mem.popitem(last=False)
+
     def __getitem__(self, index):
         sample_t0 = time.time()
         tile_id = self.tile_ids[index]
-        can_use_cache = (
-            self.use_tile_cache
-            and self.cache_dir is not None
-            and self.mask_type == 'hard'
-            and (not self.use_advanced_processor)
-            and (self.cloud_mask_dir is None)
-        )
+        cached_sample = self._get_processed_sample_cache(tile_id)
+        if cached_sample is not None:
+            return cached_sample
 
-        cache_payload = self._load_tile_cache(tile_id) if can_use_cache else None
+        cache_payload = self._load_tile_cache(tile_id) if self.can_use_tile_cache else None
         lr_files = []
         cached_file_names = None
         cached_reflectance = None
@@ -574,7 +907,14 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
             cached_doy = cached_doy[selected_indices]
             cached_file_names = [cached_file_names[i] for i in selected_indices]
             lr_files = [self.lr_dir / n for n in cached_file_names]
+            cached_mask_prob, cached_time_valid = self._load_or_build_mask_cache(
+                tile_id,
+                cached_file_names,
+                cached_hard_mask,
+            )
         else:
+            cached_mask_prob = None
+            cached_time_valid = None
             lr_files = self._tile_to_lr_files.get(tile_id, [])
             if self.enable_hr_zero_filter:
                 lr_files, _, _ = _filter_files_by_hr_zero_ratio(
@@ -590,9 +930,7 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         # 加载HR (保留您的逻辑)
         hr_fname_pattern = lr_files[0].name
         target_hr_path = self.hr_dir / hr_fname_pattern
-        with rasterio.open(target_hr_path) as src:
-            hr_img = src.read()
-        hr_tensor = torch.from_numpy(robust_per_image_normalize(hr_img)).float()
+        hr_tensor = self._load_or_build_hr_tensor(target_hr_path)
 
         processed_lr_timesteps = []
         timestamps = []
@@ -606,8 +944,16 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                 day_of_year = float(cached_doy[i])
                 h, w = hard_valid_mask.shape
                 timestamps.append(day_of_year)
-                mask_prob = hard_valid_mask.copy()
-                time_is_valid = bool(float(hard_valid_mask.mean()) > 1e-6)
+                if cached_mask_prob is not None and i < cached_mask_prob.shape[0]:
+                    mask_prob = cached_mask_prob[i].astype(np.float32)
+                    if cached_time_valid is not None and i < cached_time_valid.shape[0]:
+                        time_is_valid = bool(float(cached_time_valid[i]) > 0.5)
+                    else:
+                        time_is_valid = bool(float(mask_prob.mean()) > 1e-6)
+                else:
+                    mask_prob = hard_valid_mask.copy()
+                    time_is_valid = bool(float(hard_valid_mask.mean()) > 1e-6)
+
                 features_to_concat = [normalized_reflectance]
 
                 if self.use_time_band:
@@ -636,12 +982,16 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                 day_of_year = dt_object.timetuple().tm_yday
                 timestamps.append(day_of_year)
 
-                # 基础有效性掩膜：所有反射率通道都大于0视作有效
-                hard_valid_mask = (np.all(reflectance_data > 0, axis=0)).astype(np.float32)
+                # 基础有效性掩膜：只检查真实反射率通道，避免尾部 QA/mask 通道污染有效性。
+                hard_valid_mask = _compute_hard_valid_mask(
+                    reflectance_data,
+                    valid_mask_band_count=self.valid_mask_band_count,
+                )
 
                 # 默认 mask_prob 就是硬掩膜
                 mask_prob = hard_valid_mask.copy()
                 soft_mask_raw = None
+                has_soft_mask_source = False
 
                 # 若启用软掩膜，优先顺序：外部文件 -> LR末波段 -> 回退硬掩膜
                 if self.use_mask_band and self.mask_type == 'soft':
@@ -659,6 +1009,7 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
 
                     if loaded is not None:
                         soft_mask_raw = loaded
+                        has_soft_mask_source = True
                         loaded = _normalize_softmask_values(loaded)
                         mask_prob = _safe_resize_mask(loaded, h, w)
                     else:
@@ -667,8 +1018,12 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
 
                 # 高级处理器：根据配置对掩膜进行平滑/归一化/有效性判定
                 time_is_valid = bool(float(hard_valid_mask.mean()) > 1e-6)
-                if self.use_advanced_processor and self.cloud_mask_processor is not None:
-                    processor_input = soft_mask_raw if soft_mask_raw is not None else mask_prob
+                if (
+                    self.use_advanced_processor
+                    and self.cloud_mask_processor is not None
+                    and has_soft_mask_source
+                ):
+                    processor_input = soft_mask_raw
                     mask_prob, processor_meta = self.cloud_mask_processor.process_pixel_mask(
                         processor_input,
                         reflectance_data=reflectance_data,
@@ -677,7 +1032,11 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                 
                 # --- 【核心改造】根据开关，动态拼接特征 ---
                 # 1. 基础特征：归一化后的反射率
-                normalized_reflectance = robust_per_image_normalize(reflectance_data)
+                reflectance_input = _select_reflectance_bands(
+                    reflectance_data,
+                    reflectance_band_count=self.reflectance_band_count,
+                )
+                normalized_reflectance = robust_per_image_normalize(reflectance_input)
                 features_to_concat = [normalized_reflectance]
 
                 # 2. (可选) 添加“时间波段”
@@ -725,9 +1084,24 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         if self.need_path:
             sample['path'] = str(target_hr_path)
 
+        sample = _pad_or_truncate_temporal_sample(sample, self.fixed_temporal_len)
+
         for k, v in list(sample.items()):
             if torch.is_tensor(v):
                 sample[k] = v.contiguous().clone()
+        self._put_processed_sample_cache(tile_id, sample)
+        elapsed = time.time() - sample_t0
+        if (
+            self.slow_sample_warn_sec > 0
+            and elapsed > self.slow_sample_warn_sec
+            and self._slow_sample_warn_count < self.slow_sample_warn_max
+        ):
+            self._slow_sample_warn_count += 1
+            print(
+                f"[Dataset WARN] Slow sample tile={tile_id} took {elapsed:.2f}s "
+                f"(tile_cache={'hit' if cache_payload is not None else 'miss/bypassed'}, "
+                f"processed_cache=miss)."
+            )
         return sample
 
 # ==============================================================================

@@ -15,8 +15,6 @@ sys.path.append(str(project_root))
 
 from utils.util_common import get_obj_from_str
 from datapipe.datasets import create_dataset  # 新架构数据集创建工具
-from trainer import TrainerAlphaSR            # 训练器类
-from trainer_srcnn import TrainerSRCNN        # SRCNN专用训练器
 from inference import Predictor               # 新架构推理预测器类
 from inference_srcnn import PredictorSRCNN, run_inference_srcnn  # SRCNN专用推理
 
@@ -77,8 +75,11 @@ def run_training(args, configs):
                 latest_run_dir = max([d for d in exp_dir.iterdir() if d.is_dir()], key=os.path.getmtime)
                 ckpt_dir = latest_run_dir / 'ckpts'
                 if ckpt_dir.exists():
-                    # 查找所有模型ckpt文件
-                    ckpt_files = list(ckpt_dir.glob('model_*.pth'))
+                    # 查找所有带数字迭代号的模型ckpt文件，避免 model_best.pth 干扰自动恢复。
+                    ckpt_files = [
+                        p for p in ckpt_dir.glob('model_*.pth')
+                        if p.stem.split('_')[-1].isdigit()
+                    ]
                     if ckpt_files:
                         # 按文件名中的数字找到最新的ckpt
                         latest_ckpt = max(ckpt_files, key=lambda p: int(p.stem.split('_')[-1]))
@@ -93,13 +94,17 @@ def run_training(args, configs):
 
     configs.resume = resume_path 
 
-    # --- 根据模型类型选择训练器 ---
-    if model_type == 'srcnn':
-        print("[Main] Using SRCNN trainer...")
-        trainer = TrainerSRCNN(configs)
+    # --- 根据配置选择训练器 ---
+    if hasattr(configs, 'trainer') and 'target' in configs.trainer:
+        trainer_target = configs.trainer.target
+    elif model_type == 'srcnn':
+        trainer_target = 'trainer_srcnn.TrainerSRCNN'
     else:
-        print("[Main] Using default (SwinIR) trainer...")
-        trainer = TrainerAlphaSR(configs)
+        trainer_target = 'trainer.TrainerAlphaSR'
+
+    print(f"[Main] Using trainer: {trainer_target}")
+    trainer_cls = get_obj_from_str(trainer_target)
+    trainer = trainer_cls(configs)
     
     trainer.train()
 
@@ -120,14 +125,25 @@ def run_testing(args, configs):
         sys.exit(1)
 
     # --- 创建Test DataLoader ---
-    data_config = {
-        'target': 'datapipe.datasets.PreprocessedTileDataset',
-        'params': {
-            'lr_dir': str(Path(args.input_dir) / 'LR'),
-            'hr_dir': str(Path(args.input_dir) / 'HR'),
-            'need_path': True
+    if model_type == 'srcnn':
+        data_config = {
+            'target': 'datapipe.datasets.PreprocessedTileDataset',
+            'params': {
+                'lr_dir': str(Path(args.input_dir) / 'LR'),
+                'hr_dir': str(Path(args.input_dir) / 'HR'),
+                'need_path': True
+            }
         }
-    }
+    else:
+        if not hasattr(configs.data, 'test'):
+            print("❌ CRITICAL: Non-SRCNN test mode requires configs.data.test.")
+            sys.exit(1)
+        data_config = OmegaConf.to_container(configs.data.test, resolve=True)
+        data_config.setdefault('params', {})
+        data_config['params']['lr_dir'] = str(Path(args.input_dir) / 'LR')
+        data_config['params']['hr_dir'] = str(Path(args.input_dir) / 'HR')
+        data_config['params']['need_path'] = True
+
     test_dataset = create_dataset(data_config, parent_configs=configs)
 
     # 动态检测输入通道数
@@ -142,7 +158,9 @@ def run_testing(args, configs):
         else:
             raise KeyError(f"No valid input key in test sample. Keys: {list(sample.keys())}")
 
-        if probe.dim() == 4:
+        if probe.dim() == 5:
+            dynamic_in_chans = int(probe.shape[2])
+        elif probe.dim() == 4:
             dynamic_in_chans = int(probe.shape[1])
         elif probe.dim() == 3:
             dynamic_in_chans = int(probe.shape[0])

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -7,6 +9,12 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import rasterio
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from datapipe.datasets import _compute_hard_valid_mask, _select_reflectance_bands
 
 
 def _load_config(cfg_path: Path) -> Dict:
@@ -81,6 +89,37 @@ def _check_tile_files_exist(cache_dir: Path, tile_id: str) -> Tuple[bool, List[s
     return (len(missing) == 0, missing)
 
 
+def _hard_mask_cache_key(valid_mask_band_count: int) -> str:
+    payload = {
+        "version": 2,
+        "valid_mask_band_count": int(valid_mask_band_count),
+    }
+    return hashlib.md5(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:10]
+
+
+def _load_hard_mask_sidecar(tile_id: str, names: List[str], params: Dict, valid_mask_band_count: int):
+    sidecar_dir = params.get("hard_mask_cache_dir") or params.get("mask_cache_dir")
+    if not sidecar_dir:
+        return None
+
+    sidecar_dir = Path(sidecar_dir)
+    key = _hard_mask_cache_key(valid_mask_band_count)
+    base = sidecar_dir / f"tile_{tile_id}_hardmask_{key}"
+    mask_path = Path(str(base) + "_valid.npy")
+    names_path = Path(str(base) + "_names.txt")
+    if not mask_path.exists() or not names_path.exists():
+        return None
+
+    try:
+        cached_names = _read_lines(names_path)
+        if cached_names != list(names):
+            return None
+        return np.load(mask_path, allow_pickle=False)
+    except Exception as e:
+        print(f"[WARN] tile={tile_id} failed loading hard-mask sidecar: {e}")
+        return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check Anytime cache integrity.")
     parser.add_argument("--cfg_path", type=str, default="configs/config_swinir.yaml")
@@ -91,6 +130,18 @@ def main() -> int:
     parser.add_argument("--target_hr_rule", type=str, default="latest", choices=["latest", "earliest"])
     parser.add_argument("--spot_check", type=int, default=0, help="Number of timesteps to verify against raw LR per tile.")
     parser.add_argument("--max_tiles", type=int, default=0, help="Only check first N tiles (0 means all).")
+    parser.add_argument(
+        "--valid_mask_band_count",
+        type=int,
+        default=0,
+        help="Leading LR bands used for hard valid mask; 0 auto-detects trailing QA/mask-like bands.",
+    )
+    parser.add_argument(
+        "--reflectance_band_count",
+        type=int,
+        default=0,
+        help="Leading LR bands expected in reflectance cache; 0 uses config value, then all bands.",
+    )
     parser.add_argument("--tol_reflectance", type=float, default=2e-2)
     parser.add_argument("--tol_mask", type=float, default=1e-6)
     args = parser.parse_args()
@@ -131,6 +182,8 @@ def main() -> int:
     print(f"[INFO] tiles={len(tile_ids)}")
 
     rng = np.random.default_rng(0)
+    valid_mask_band_count = int(args.valid_mask_band_count or params.get("valid_mask_band_count", 0) or 0)
+    reflectance_band_count = int(args.reflectance_band_count or params.get("reflectance_band_count", 0) or 0)
 
     for tile_id in tile_ids:
         ok, missing = _check_tile_files_exist(cache_dir, tile_id)
@@ -154,6 +207,11 @@ def main() -> int:
             print(f"[ERROR] tile={tile_id} failed loading cache arrays: {e}")
             continue
 
+        active_mask = mask
+        sidecar_mask = _load_hard_mask_sidecar(tile_id, names, params, valid_mask_band_count)
+        if sidecar_mask is not None:
+            active_mask = sidecar_mask
+
         # Shape checks.
         if refl.ndim != 4:
             errors += 1
@@ -169,10 +227,10 @@ def main() -> int:
             continue
 
         t_refl, c_refl, h_refl, w_refl = refl.shape
-        if mask.shape != (t_refl, h_refl, w_refl):
+        if active_mask.shape != (t_refl, h_refl, w_refl):
             errors += 1
             print(
-                f"[ERROR] tile={tile_id} shape mismatch: reflectance={refl.shape}, hard_valid_mask={mask.shape}"
+                f"[ERROR] tile={tile_id} shape mismatch: reflectance={refl.shape}, active_hard_valid_mask={active_mask.shape}"
             )
         if len(doy) != t_refl or len(names) != t_refl:
             errors += 1
@@ -184,7 +242,7 @@ def main() -> int:
         if not np.isfinite(refl).all():
             errors += 1
             print(f"[ERROR] tile={tile_id} reflectance contains NaN/Inf")
-        if not np.isfinite(mask).all():
+        if not np.isfinite(active_mask).all():
             errors += 1
             print(f"[ERROR] tile={tile_id} hard_valid_mask contains NaN/Inf")
         if refl.size > 0:
@@ -192,7 +250,7 @@ def main() -> int:
             if rmin < -1.2 or rmax > 1.2:
                 warnings += 1
                 print(f"[WARN] tile={tile_id} reflectance out of expected range [-1,1]: [{rmin:.4f},{rmax:.4f}]")
-        mmin, mmax = float(np.min(mask)), float(np.max(mask))
+        mmin, mmax = float(np.min(active_mask)), float(np.max(active_mask))
         if mmin < -1e-6 or mmax > 1.0 + 1e-6:
             errors += 1
             print(f"[ERROR] tile={tile_id} hard_valid_mask out of range [0,1]: [{mmin:.6f},{mmax:.6f}]")
@@ -244,8 +302,11 @@ def main() -> int:
                     print(f"[ERROR] tile={tile_id} failed reading raw LR {fname}: {e}")
                     continue
 
-                recomputed_mask = (np.all(raw > 0, axis=0)).astype(np.float32)
-                cached_mask = mask[int(i)].astype(np.float32)
+                recomputed_mask = _compute_hard_valid_mask(
+                    raw,
+                    valid_mask_band_count=valid_mask_band_count,
+                )
+                cached_mask = active_mask[int(i)].astype(np.float32)
                 mask_diff = float(np.max(np.abs(recomputed_mask - cached_mask)))
                 if mask_diff > args.tol_mask:
                     errors += 1
@@ -253,8 +314,15 @@ def main() -> int:
                         f"[ERROR] tile={tile_id} t={int(i)} hard_mask mismatch max_abs_diff={mask_diff:.6g} file={fname}"
                     )
 
-                recomputed_reflectance = _robust_per_image_normalize(raw)
-                cached_reflectance = refl[int(i)].astype(np.float32)
+                raw_reflectance = _select_reflectance_bands(
+                    raw,
+                    reflectance_band_count=reflectance_band_count,
+                )
+                recomputed_reflectance = _robust_per_image_normalize(raw_reflectance)
+                cached_reflectance = _select_reflectance_bands(
+                    refl[int(i)].astype(np.float32),
+                    reflectance_band_count=reflectance_band_count,
+                )
                 if recomputed_reflectance.shape != cached_reflectance.shape:
                     errors += 1
                     print(
@@ -283,4 +351,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
