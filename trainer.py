@@ -18,6 +18,9 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from sewar.full_ref import psnr, ssim, ergas, sam
 from tqdm import tqdm
+import matplotlib
+
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 # import hydra  # 用于自动化实例化（保留，兼容配置实例化逻辑）
 from pytorch_msssim import ssim as ssim_loss_func  # SSIM损失计算
@@ -132,9 +135,26 @@ class TrainerBase:
             self.ckpt_dir.mkdir(exist_ok=True)
 
         # 可视化图片保存目录（仅主进程）
-        if self.rank == 0 and self.configs.train.get('local_logging', False):
+        if self.rank == 0:
             self.image_dir = self.save_dir / 'images'
             (self.image_dir / 'val').mkdir(parents=True, exist_ok=True)
+
+    def _train_config_has(self, key):
+        try:
+            return key in self.configs.train
+        except Exception:
+            return False
+
+    def _validation_visualization_enabled(self):
+        for key in ('visualize_validation', 'visualize_val', 'local_logging'):
+            if self._train_config_has(key):
+                return bool(self.configs.train.get(key, False))
+        return True
+
+    def _curve_plotting_enabled(self):
+        if self._train_config_has('plot_curves_during_training'):
+            return bool(self.configs.train.get('plot_curves_during_training', True))
+        return True
 
     def build_dataloader(self):
         """构建训练/验证数据加载器（兼容分布式采样）"""
@@ -143,15 +163,29 @@ class TrainerBase:
             while True:
                 yield from loader
 
+        build_val = hasattr(self.configs.data, 'val') and self.rank == 0
+        val_skip_reason = None
+        if build_val and not bool(self.configs.train.get('build_val_dataloader', True)):
+            build_val = False
+            val_skip_reason = 'build_val_dataloader=false'
+        if build_val and bool(self.configs.train.get('skip_val_if_not_reached', True)):
+            val_freq = int(self.configs.train.get('val_freq', 0) or 0)
+            iterations = int(self.configs.train.get('iterations', 0) or 0)
+            if val_freq <= 0 or val_freq > iterations:
+                build_val = False
+                val_skip_reason = f'val_freq={val_freq} is outside iterations={iterations}'
+
         # 创建数据集
         datasets = {'train': create_dataset(self.configs.data.train, parent_configs=self.configs)}
-        if hasattr(self.configs.data, 'val') and self.rank == 0:
+        if build_val:
             datasets['val'] = create_dataset(self.configs.data.val, parent_configs=self.configs)
 
         # 打印数据集大小（仅主进程）
         if self.rank == 0:
             for phase, ds in datasets.items():
                 self.logger.info(f'📊 Dataset [{phase}] size: {len(ds)}')
+            if val_skip_reason:
+                self.logger.info(f'📊 Dataset [val] skipped: {val_skip_reason}')
 
         # 分布式采样器（多GPU时用）
         sampler = None
@@ -190,7 +224,7 @@ class TrainerBase:
                 **train_loader_kwargs
             ))
         }
-        if hasattr(self.configs.data, 'val') and self.rank == 0:
+        if build_val:
             val_loader_kwargs = dict(
                 batch_size=val_batch_size,
                 num_workers=val_num_workers,
@@ -387,6 +421,20 @@ class TrainerBase:
             dist.barrier()
         
         self.model.train()
+        save_freq = int(self.configs.train.get('save_freq', 0) or 0)
+        val_freq = int(self.configs.train.get('val_freq', 0) or 0)
+        save_before_val = bool(self.configs.train.get('save_before_val', True))
+        curve_freq = int(
+            self.configs.train.get(
+                'plot_curve_freq',
+                self.configs.train.get('curve_freq', 0),
+            ) or 0
+        )
+        if curve_freq <= 0:
+            if val_freq > 0 and 'val' in self.dataloaders:
+                curve_freq = val_freq
+            else:
+                curve_freq = save_freq
         # 迭代训练
         for ii in range(self.iters_start, self.configs.train.iterations):
             self.current_iters = ii + 1
@@ -397,11 +445,32 @@ class TrainerBase:
             
             # 加载批次数据并执行训练步
             # import pdb;pdb.set_trace()
-            data = self.prepare_data(next(self.dataloaders['train']))
+            t0 = time.perf_counter()
+            batch = next(self.dataloaders['train'])
+            data_wait_time = time.perf_counter() - t0
+
+            t0 = time.perf_counter()
+            data = self.prepare_data(batch)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            to_device_time = time.perf_counter() - t0
+
+            t0 = time.perf_counter()
             self.training_step(data)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            train_step_time = time.perf_counter() - t0
+            self._log_train_timing(data_wait_time, to_device_time, train_step_time)
+
+            is_save_iter = save_freq > 0 and (self.current_iters % save_freq) == 0
+            is_val_iter = val_freq > 0 and (self.current_iters % val_freq) == 0
+            
+            # 保存普通检查点。默认先保存再验证，避免长验证/卡住时丢掉当前迭代模型。
+            if is_save_iter and save_before_val:
+                self.save_ckpt(best=False)
             
             # 验证（按验证频率）
-            if (self.current_iters % self.configs.train.val_freq) == 0:
+            if is_val_iter:
                 if self.num_gpus > 1:
                     dist.barrier()
                 cur_metric = None
@@ -424,9 +493,16 @@ class TrainerBase:
                 if self.num_gpus > 1:
                     dist.barrier()
             
-            # 保存普通检查点（按保存频率）
-            if (self.current_iters % self.configs.train.save_freq) == 0:
+            if is_save_iter and not save_before_val:
                 self.save_ckpt(best=False)
+
+            if (
+                self.rank == 0
+                and self._curve_plotting_enabled()
+                and curve_freq > 0
+                and (self.current_iters % curve_freq) == 0
+            ):
+                self.plot_curves()
         
         # 训练结束生成曲线
         if self.rank == 0:
@@ -510,6 +586,32 @@ class TrainerAlphaSR(TrainerBase):
             if self.current_iters % 100 == 0:
                 lr_val = float(self.optimizer.param_groups[0]['lr'])
                 self.logger.info(f"📈 Iter {self.current_iters} | Train Loss: {loss.item():.6f} | LR: {lr_val:.3e}")
+
+    def _log_train_timing(self, data_wait_time, to_device_time, train_step_time):
+        """Optional timing/GPU-memory log for locating CPU input stalls vs CUDA compute."""
+        if self.rank != 0:
+            return
+        freq = int(self.configs.train.get('train_timing_log_freq', 0) or 0)
+        if freq <= 0 or self.current_iters % freq != 0:
+            return
+
+        msg = (
+            f"⏱️ Train timing | iter={self.current_iters} "
+            f"data_wait={data_wait_time:.3f}s "
+            f"to_device={to_device_time:.3f}s "
+            f"forward_backward={train_step_time:.3f}s"
+        )
+        if torch.cuda.is_available():
+            device = torch.device('cuda', self.local_rank)
+            allocated_gb = torch.cuda.memory_allocated(device) / (1024 ** 3)
+            reserved_gb = torch.cuda.memory_reserved(device) / (1024 ** 3)
+            max_allocated_gb = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+            msg += (
+                f" gpu_mem_alloc={allocated_gb:.2f}GB"
+                f" gpu_mem_reserved={reserved_gb:.2f}GB"
+                f" gpu_mem_max_alloc={max_allocated_gb:.2f}GB"
+            )
+        self.logger.info(msg)
 
     def _log_batch_debug(self, data, predictions=None, loss=None, phase='train'):
         """Optional compact tensor statistics for diagnosing train/val drift."""
@@ -730,7 +832,29 @@ class TrainerAlphaSR(TrainerBase):
             timing = {'data_wait': 0.0, 'to_device': 0.0, 'forward': 0.0, 'metrics': 0.0, 'visualize': 0.0}
             val_loader = self.dataloaders[phase]
             val_iter = iter(val_loader)
-            pbar = tqdm(range(len(val_loader)), desc=f"📌 Val Iter {getattr(self, 'current_iters', 0)}")
+            total_val_batches = len(val_loader)
+            run_val_batches = total_val_batches
+            limit_reasons = []
+            val_max_batches = int(self.configs.train.get('val_max_batches', 0) or 0)
+            val_max_samples = int(self.configs.train.get('val_max_samples', 0) or 0)
+            if val_max_batches > 0:
+                run_val_batches = min(run_val_batches, val_max_batches)
+                limit_reasons.append(f"val_max_batches={val_max_batches}")
+            if val_max_samples > 0:
+                batch_size = int(getattr(val_loader, 'batch_size', 1) or 1)
+                sample_limited_batches = int(math.ceil(val_max_samples / max(batch_size, 1)))
+                run_val_batches = min(run_val_batches, sample_limited_batches)
+                limit_reasons.append(f"val_max_samples={val_max_samples}")
+            if run_val_batches <= 0:
+                self.logger.warning("⚠️ Validation skipped: no validation batches selected.")
+                self.model.train()
+                return None
+            if run_val_batches < total_val_batches:
+                self.logger.info(
+                    f"🔎 Validation capped | batches={run_val_batches}/{total_val_batches} "
+                    f"({', '.join(limit_reasons)})"
+                )
+            pbar = tqdm(range(run_val_batches), desc=f"📌 Val Iter {getattr(self, 'current_iters', 0)}")
             
             for ii in pbar:
                 t0 = time.perf_counter()
@@ -815,14 +939,26 @@ class TrainerAlphaSR(TrainerBase):
                     torch.cuda.synchronize()
                 timing['metrics'] += time.perf_counter() - t0
 
-                # 可视化第一个样本
-                if ii == 0 and self.configs.train.get('local_logging', False):
+                # 可视化验证样本
+                val_visualize_max = int(
+                    self.configs.train.get(
+                        'val_visualize_max_samples',
+                        self.configs.train.get('val_vis_max_samples', 1),
+                    ) or 0
+                )
+                if ii == 0 and self._validation_visualization_enabled() and val_visualize_max > 0:
                     t0 = time.perf_counter()
-                    self.visualize_validation_sample(data, predictions, ii)
+                    batch_vis_count = min(val_visualize_max, int(predictions.shape[0]))
+                    for sample_idx in range(batch_vis_count):
+                        self.visualize_validation_sample(data, predictions, sample_idx)
                     timing['visualize'] += time.perf_counter() - t0
             
             # 计算平均指标（排除空的 masked_psnr 列表）
             avg_metrics = {k: float(np.mean(v)) for k, v in all_metrics.items() if v}
+            if 'psnr' not in avg_metrics:
+                self.logger.warning("⚠️ Validation produced no PSNR values; skip metric update.")
+                self.model.train()
+                return None
             # 打印验证指标
             masked_psnr_str = (
                 f" | Masked-PSNR: {avg_metrics['masked_psnr']:.4f}"
@@ -879,54 +1015,53 @@ class TrainerAlphaSR(TrainerBase):
         """健壮的可视化函数：过滤非基础波段，适配T*C扁平化通道"""
         try:
             # 1. 读取基础波段配置
-            num_base_bands = self.configs.data.train.params.get('num_lr_bands', 9)
-            C_total = self.configs.model.params.in_chans
-            
-            # 2. 计算时间维度T（拆分T*C合并维度）
-            time_band_enabled = self.configs.features.time_band.enabled
-            mask_band_enabled = self.configs.features.mask_band.enabled
-            T = C_total // (num_base_bands + time_band_enabled + mask_band_enabled)
-            
-            # 3. 重塑lr_sequence为(B, T, C_per_T, H, W)
-            lr_seq_shape = data['lr_sequence'].shape
-            lr_reshaped = data['lr_sequence'].view(
-                -1, T, C_total // T, lr_seq_shape[-2], lr_seq_shape[-1]
-            )
-            
-            # 4. 取第一个时相的基础波段
-            lr_vis_tensor = lr_reshaped[sample_idx, 0, :num_base_bands]
+            train_params = self.configs.data.train.params
+            num_base_bands = int(train_params.get('reflectance_band_count', train_params.get('num_lr_bands', 9)) or 9)
+
+            # 2. 取第一个时相的基础波段
+            lr_sequence = data['lr_sequence']
+            if lr_sequence.ndim == 5:
+                lr_vis_tensor = lr_sequence[sample_idx, 0, :num_base_bands]
+            elif lr_sequence.ndim == 4:
+                lr_vis_tensor = lr_sequence[sample_idx, :num_base_bands]
+            else:
+                raise ValueError(f"Unsupported lr_sequence shape for visualization: {tuple(lr_sequence.shape)}")
             gt_vis_tensor = data['gt'][sample_idx]
             pred_vis_tensor = predictions[sample_idx]
 
-            # 5. 归一化用于可视化
+            # 3. 归一化用于可视化
             lr_vis = self.norm_for_vis(lr_vis_tensor)
             gt_vis = self.norm_for_vis(gt_vis_tensor)
             pred_vis = self.norm_for_vis(pred_vis_tensor)
 
-            # 6. 计算误差图（按通道均值）
-            error_map = np.abs(pred_vis - gt_vis).mean(axis=2)
+            # 4. 计算误差图（按通道均值）
+            error_map = np.abs(pred_vis - gt_vis).mean(axis=0)
 
-            # 7. 创建可视化面板
+            # 5. 创建可视化面板
             fig, axes = plt.subplots(2, 2, figsize=(14, 14))
             fig.suptitle(f'Validation Iter {self.current_iters}', fontsize=16)
 
-            # 8. RGB通道配置（默认[0,1,2]）
-            rgb_chn = self.configs.train.get('rgb_chn', [0, 1, 2])
+            # 6. RGB通道配置（默认[0,1,2]）
+            rgb_chn = [int(x) for x in self.configs.train.get('rgb_chn', [0, 1, 2])]
+            lr_rgb = [min(max(ch, 0), lr_vis.shape[0] - 1) for ch in rgb_chn]
+            pred_rgb = [min(max(ch, 0), pred_vis.shape[0] - 1) for ch in rgb_chn]
+            gt_rgb = [min(max(ch, 0), gt_vis.shape[0] - 1) for ch in rgb_chn]
 
-            # 9. 绘制子图
-            axes[0,0].imshow(lr_vis.transpose(1,2,0)[:, :, rgb_chn]); axes[0,0].set_title('Input LR (First Timestep)')
-            axes[0,1].imshow(pred_vis.transpose(1,2,0)[:, :, rgb_chn]); axes[0,1].set_title('Prediction (SR)')
-            axes[1,0].imshow(gt_vis.transpose(1,2,0)[:, :, rgb_chn]); axes[1,0].set_title('Ground Truth (HR)')
+            # 7. 绘制子图
+            axes[0,0].imshow(lr_vis.transpose(1,2,0)[:, :, lr_rgb]); axes[0,0].set_title('Input LR (First Timestep)')
+            axes[0,1].imshow(pred_vis.transpose(1,2,0)[:, :, pred_rgb]); axes[0,1].set_title('Prediction (SR)')
+            axes[1,0].imshow(gt_vis.transpose(1,2,0)[:, :, gt_rgb]); axes[1,0].set_title('Ground Truth (HR)')
             im = axes[1,1].imshow(error_map, cmap='hot'); axes[1,1].set_title('Absolute Error Map')
             fig.colorbar(im, ax=axes[1,1])
 
-            # 10. 隐藏坐标轴
+            # 8. 隐藏坐标轴
             for ax in axes.flatten():
                 ax.set_xticks([])
                 ax.set_yticks([])
 
-            # 11. 保存图片
+            # 9. 保存图片
             plt.tight_layout(rect=[0, 0, 1, 0.96])
+            (self.image_dir / 'val').mkdir(parents=True, exist_ok=True)
             save_path = self.image_dir / 'val' / f"iter_{self.current_iters}_sample_{sample_idx}.png"
             plt.savefig(str(save_path), dpi=150)
             plt.close(fig)
@@ -936,7 +1071,7 @@ class TrainerAlphaSR(TrainerBase):
 
     def baseline_visualize(self):
         """训练前生成基线可视化（对比初始模型效果）"""
-        if self.rank == 0 and self.configs.train.get('local_logging', False):
+        if self.rank == 0 and self._validation_visualization_enabled() and 'val' in self.dataloaders:
             self.logger.info("🎨 Generating baseline visualization...")
             self.model.eval()
             # try:

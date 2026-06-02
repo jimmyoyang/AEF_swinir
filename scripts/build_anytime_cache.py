@@ -14,7 +14,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from datapipe.datasets import _compute_hard_valid_mask, _select_reflectance_bands, robust_per_image_normalize
+from datapipe.datasets import (
+    _atomic_save_npy,
+    _compute_hard_valid_mask,
+    _select_reflectance_bands,
+    robust_per_image_normalize,
+)
 
 
 def group_lr_files_by_tile(lr_dir: Path):
@@ -40,22 +45,77 @@ def compute_day_of_year(file_name: str):
     return int((dt - year_start).astype(int) + 1)
 
 
+def tile_cache_complete(out_dir: Path, tile_id: str):
+    base = out_dir / f"tile_{tile_id}"
+    reflectance_path = Path(str(base) + "_reflectance.npy")
+    hard_mask_path = Path(str(base) + "_hard_valid_mask.npy")
+    doy_path = Path(str(base) + "_day_of_year.npy")
+    names_path = out_dir / f"tile_{tile_id}_file_names.txt"
+    if not (
+        reflectance_path.is_file()
+        and hard_mask_path.is_file()
+        and doy_path.is_file()
+        and names_path.is_file()
+    ):
+        return False
+    try:
+        np.load(reflectance_path, mmap_mode="r", allow_pickle=False)
+        np.load(hard_mask_path, mmap_mode="r", allow_pickle=False)
+        np.load(doy_path, mmap_mode="r", allow_pickle=False)
+        with names_path.open("r", encoding="utf-8") as f:
+            return any(line.strip() for line in f)
+    except Exception:
+        return False
+
+
+def write_file_names_atomic(path: Path, file_names):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.stem}.tmp.{path.suffix.lstrip('.')}")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            for n in file_names:
+                f.write(n + "\n")
+        tmp_path.replace(path)
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+
+
+def tile_cache_files_exist(out_dir: Path, tile_id: str):
+    base = out_dir / f"tile_{tile_id}"
+    return (
+        Path(str(base) + "_reflectance.npy").is_file()
+        and Path(str(base) + "_hard_valid_mask.npy").is_file()
+        and Path(str(base) + "_day_of_year.npy").is_file()
+        and (out_dir / f"tile_{tile_id}_file_names.txt").is_file()
+    )
+
+
 def build_split_cache(
     lr_dir: Path,
     out_dir: Path,
     max_tiles: int = 0,
     valid_mask_band_count: int = 0,
     reflectance_band_count: int = 0,
+    skip_existing: bool = False,
 ):
     out_dir.mkdir(parents=True, exist_ok=True)
     grouped = group_lr_files_by_tile(lr_dir)
     tile_ids = sorted(grouped.keys())
     if max_tiles and max_tiles > 0:
         tile_ids = tile_ids[:max_tiles]
+    original_tile_count = len(tile_ids)
+    if skip_existing:
+        tile_ids = [tile_id for tile_id in tile_ids if not tile_cache_complete(out_dir, tile_id)]
 
     print(f"[cache] lr_dir={lr_dir}")
     print(f"[cache] out_dir={out_dir}")
     print(f"[cache] tiles={len(tile_ids)}")
+    if skip_existing:
+        print(f"[cache] skipped_existing={original_tile_count - len(tile_ids)}")
 
     for tile_id in tqdm(tile_ids, desc=f"build-cache:{lr_dir.parent.name}/{lr_dir.name}", dynamic_ncols=True):
         build_one_tile_cache(
@@ -74,16 +134,22 @@ def build_split_cache_parallel(
     num_workers: int = 4,
     valid_mask_band_count: int = 0,
     reflectance_band_count: int = 0,
+    skip_existing: bool = False,
 ):
     out_dir.mkdir(parents=True, exist_ok=True)
     grouped = group_lr_files_by_tile(lr_dir)
     tile_ids = sorted(grouped.keys())
     if max_tiles and max_tiles > 0:
         tile_ids = tile_ids[:max_tiles]
+    original_tile_count = len(tile_ids)
+    if skip_existing:
+        tile_ids = [tile_id for tile_id in tile_ids if not tile_cache_complete(out_dir, tile_id)]
 
     print(f"[cache] lr_dir={lr_dir}")
     print(f"[cache] out_dir={out_dir}")
     print(f"[cache] tiles={len(tile_ids)}")
+    if skip_existing:
+        print(f"[cache] skipped_existing={original_tile_count - len(tile_ids)}")
     print(f"[cache] num_workers={num_workers}")
 
     futures = []
@@ -143,12 +209,10 @@ def build_one_tile_cache(
             return tile_id, None
 
         base = Path(out_dir) / f"tile_{tile_id}"
-        np.save(str(base) + "_reflectance.npy", np.stack(refl_list, axis=0).astype(np.float16))
-        np.save(str(base) + "_hard_valid_mask.npy", np.stack(hard_mask_list, axis=0).astype(np.float16))
-        np.save(str(base) + "_day_of_year.npy", np.array(doy_list, dtype=np.int16))
-        with (Path(out_dir) / f"tile_{tile_id}_file_names.txt").open("w", encoding="utf-8") as f:
-            for n in file_names:
-                f.write(n + "\n")
+        _atomic_save_npy(Path(str(base) + "_reflectance.npy"), np.stack(refl_list, axis=0).astype(np.float16))
+        _atomic_save_npy(Path(str(base) + "_hard_valid_mask.npy"), np.stack(hard_mask_list, axis=0).astype(np.float16))
+        _atomic_save_npy(Path(str(base) + "_day_of_year.npy"), np.array(doy_list, dtype=np.int16))
+        write_file_names_atomic(Path(out_dir) / f"tile_{tile_id}_file_names.txt", file_names)
         return tile_id, None
     except Exception as e:
         return tile_id, str(e)
@@ -172,6 +236,11 @@ def main():
         default=0,
         help="Leading LR bands stored as model reflectance input; 0 keeps all LR bands.",
     )
+    parser.add_argument(
+        "--skip_existing",
+        action="store_true",
+        help="Skip tiles whose four cache files already exist.",
+    )
     args = parser.parse_args()
     if args.num_workers <= 1:
         build_split_cache(
@@ -180,6 +249,7 @@ def main():
             max_tiles=args.max_tiles,
             valid_mask_band_count=args.valid_mask_band_count,
             reflectance_band_count=args.reflectance_band_count,
+            skip_existing=args.skip_existing,
         )
     else:
         build_split_cache_parallel(
@@ -189,6 +259,7 @@ def main():
             num_workers=args.num_workers,
             valid_mask_band_count=args.valid_mask_band_count,
             reflectance_band_count=args.reflectance_band_count,
+            skip_existing=args.skip_existing,
         )
 
 

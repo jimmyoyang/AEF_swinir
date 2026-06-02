@@ -1,0 +1,191 @@
+model:
+  target: models.network_swinir.SwinIR
+  params:
+    temporal_fusion_mode: 'mean'
+    img_size: 64
+    upscale: 3
+    upsampler: 'pixelshuffle'
+    window_size: 8
+    embed_dim: 180
+    depths: [6, 6, 6, 6]
+    num_heads: [6, 6, 6, 6]
+    mlp_ratio: 4
+    resi_connection: '1conv'
+    out_channels: 64
+    fusion_module: 'lightweight_channel_attention'
+    use_cross_attention: false
+    cross_num_heads: 6
+    cross_downsample_rate: 1
+    cross_concat_value: false
+    use_pos_emb: true
+    use_learnable_pos_emb: true
+    pos_emb_dim: 180
+    temporal_attention_params:
+      num_heads: 6
+
+data:
+  train:
+    target: datapipe.datasets.MultiPathAnytimeTemporalDataset
+    params:
+      dataset_roots: &multi_year_roots
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2018/processed_data_SR_10m_filer"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2019/processed_data_SR_10m_filer"
+        # - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2020-charles/processed_data_SR_10m_filer"  # 2020 target_t=19; enable after this filtered root is generated.
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2021/processed_data_SR_10m_filer"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer"
+      dataset_names: &multi_year_names
+        - "2018_T20"
+        - "2019_T23"
+        # - "2020_T19"
+        - "2021_T21"
+        - "2022_T19"
+        - "2023_T22"
+        - "2024_T22"
+      split: train
+      fixed_temporal_len: 23
+      pre_filter_sample_num: 0
+      sample_num: 0
+      enable_hr_zero_filter: false
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: "./patch_stats.log"
+      cache_dirs:
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2018/processed_data_SR_10m_filer/cache/train"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2019/processed_data_SR_10m_filer/cache/train"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2021/processed_data_SR_10m_filer/cache/train"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer/cache/train"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer/cache/train"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer/cache/train"
+      mask_cache_root: "./tmp/mask_cache/ablation_4f_multiyear/train/mask"
+      hard_mask_cache_root: "./tmp/mask_cache/ablation_4f_multiyear/train/hard"
+      hr_cache_root: "./tmp/mask_cache/ablation_4f_multiyear/train/hr"
+      valid_mask_band_count: 9
+      reflectance_band_count: 9
+      use_tile_cache: true
+      require_tile_cache: true
+      filter_to_tile_cache: true
+      require_hr_cache: false
+      filter_to_hr_cache: false
+      build_hard_mask_cache_on_miss: false
+      build_mask_cache_on_miss: false
+      tile_cache_mem_size: 64
+      sample_cache_mem_size: 0
+  val:
+    target: datapipe.datasets.MultiPathAnytimeTemporalDataset
+    params:
+      dataset_roots: *multi_year_roots
+      dataset_names: *multi_year_names
+      split: val
+      fixed_temporal_len: 23
+      pre_filter_sample_num: 0
+      sample_num: 0
+      enable_hr_zero_filter: false
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: "./patch_stats.log"
+      cache_dirs:
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2018/processed_data_SR_10m_filer/cache/val"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2019/processed_data_SR_10m_filer/cache/val"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2021/processed_data_SR_10m_filer/cache/val"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer/cache/val"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer/cache/val"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer/cache/val"
+      mask_cache_root: "./tmp/mask_cache/ablation_4f_multiyear/val/mask"
+      hard_mask_cache_root: "./tmp/mask_cache/ablation_4f_multiyear/val/hard"
+      hr_cache_root: "./tmp/mask_cache/ablation_4f_multiyear/val/hr"
+      valid_mask_band_count: 9
+      reflectance_band_count: 9
+      use_tile_cache: true
+      require_tile_cache: true
+      filter_to_tile_cache: true
+      build_hard_mask_cache_on_miss: false
+      build_mask_cache_on_miss: false
+      tile_cache_mem_size: 64
+      sample_cache_mem_size: 64
+  test:
+    target: datapipe.datasets.MultiPathAnytimeTemporalDataset
+    params:
+      dataset_roots: *multi_year_roots
+      dataset_names: *multi_year_names
+      split: test
+      fixed_temporal_len: 23
+      pre_filter_sample_num: 0
+      sample_num: 0
+      enable_hr_zero_filter: false
+      hr_zero_ratio_filter_threshold: 0.05
+      hr_zero_ratio_manifest: "./patch_stats.log"
+      cache_dirs:
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2018/processed_data_SR_10m_filer/cache/test"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2019/processed_data_SR_10m_filer/cache/test"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2021/processed_data_SR_10m_filer/cache/test"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer/cache/test"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer/cache/test"
+        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer/cache/test"
+      mask_cache_root: "./tmp/mask_cache/ablation_4f_multiyear/test/mask"
+      hard_mask_cache_root: "./tmp/mask_cache/ablation_4f_multiyear/test/hard"
+      hr_cache_root: "./tmp/mask_cache/ablation_4f_multiyear/test/hr"
+      valid_mask_band_count: 9
+      reflectance_band_count: 9
+      use_tile_cache: true
+      require_tile_cache: true
+      filter_to_tile_cache: true
+      build_hard_mask_cache_on_miss: false
+      build_mask_cache_on_miss: false
+      tile_cache_mem_size: 64
+      sample_cache_mem_size: 64
+
+trainer:
+  target: trainer_mask_ablation.TrainerAlphaSRMaskAblation
+
+loss:
+  target: trainer.MixedLoss
+  params:
+    ssim_weight: 1.0
+    l2_weight: 1.0
+    data_range: 2.0
+
+features:
+  time_band:
+    enabled: true
+  mask_band:
+    enabled: true
+    use_advanced_processor: true
+    processor:
+      mask_type: "soft"
+      use_spatial_smoothing: true
+      smoothing_sigma: 1.0
+      soft_mask_sigma: 2.0
+
+train:
+  save_dir: "./training_logs/experiments/ablation_4f_multiyear_2018_2024"
+  batch: [48, 8]
+  iterations: 20000
+  lr: 0.00005
+  lr_schedule: "ReduceLROnPlateau"
+  lr_schedule_params:
+    patience: 2
+    factor: 0.5
+    threshold: 0.01
+    threshold_mode: abs
+    min_lr: 1.0e-6
+  lr_min: 0.000001
+  weight_decay: 0.0001
+  global_seeding: true
+  seed: 42
+  num_workers: 8
+  val_num_workers: 2
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+  log_freq: [100, 200, 200]
+  save_freq: 500
+  val_freq: 500
+  save_before_val: true
+  skip_val_if_not_reached: true
+  val_max_batches: 1
+  val_max_samples: 8
+  val_debug_max_samples: 8
+  val_compute_expensive_metrics: false
+  val_timing_log: true
+  train_timing_log_freq: 50
+  rgb_chn: [2, 1, 0]

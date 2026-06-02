@@ -53,6 +53,8 @@ class PreprocessedTileDataset(torch.utils.data.Dataset):
         
         self.need_path = params.get('need_path', False)
         self.scale_factor = params.get('scale_factor', 3)
+        self.output_band_count = int(params.get('output_band_count', 0) or 0)
+        self.output_band_indices = params.get('output_band_indices', None)
 
     def __len__(self):
         return len(self.lr_files)
@@ -88,6 +90,11 @@ class PreprocessedTileDataset(torch.utils.data.Dataset):
         
         # hr_tensor = torch.from_numpy(hr_img.astype(np.float32)) / 127.5 - 1.0
         hr_tensor = torch.from_numpy(robust_per_image_normalize(hr_img)).float()
+        hr_tensor = _select_output_bands_tensor(
+            hr_tensor,
+            output_band_count=self.output_band_count,
+            output_band_indices=self.output_band_indices,
+        )
         # --- 输入插值 (与您原版逻辑完全一致) ---
         input_tensor = torch.nn.functional.interpolate(
             lr_tensor.unsqueeze(0), 
@@ -117,6 +124,7 @@ import json
 import hashlib
 import random
 import time
+import bisect
 import torch
 import rasterio
 import numpy as np
@@ -375,6 +383,36 @@ def _select_reflectance_bands(reflectance_data, reflectance_band_count=0):
     return reflectance_data[:band_count, ...]
 
 
+def _as_index_list(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = [v.strip() for v in value.split(',') if v.strip()]
+    return [int(v) for v in list(value)]
+
+
+def _select_output_bands_tensor(hr_tensor, output_band_count=0, output_band_indices=None):
+    """Select output/target AlphaEarth bands while keeping 64-band behavior by default."""
+    indices = _as_index_list(output_band_indices)
+    if indices:
+        max_idx = int(hr_tensor.shape[0]) - 1
+        if min(indices) < 0 or max(indices) > max_idx:
+            raise ValueError(
+                f"output_band_indices={indices} out of range for HR tensor with {hr_tensor.shape[0]} bands"
+            )
+        index_tensor = torch.tensor(indices, dtype=torch.long, device=hr_tensor.device)
+        return hr_tensor.index_select(0, index_tensor).contiguous()
+
+    band_count = int(output_band_count or 0)
+    if band_count <= 0:
+        return hr_tensor
+    if band_count > int(hr_tensor.shape[0]):
+        raise ValueError(
+            f"output_band_count={band_count} exceeds HR tensor band count {hr_tensor.shape[0]}"
+        )
+    return hr_tensor[:band_count].contiguous()
+
+
 def _stable_file_list_hash(file_names):
     blob = "\n".join(str(name) for name in file_names)
     return hashlib.md5(blob.encode("utf-8")).hexdigest()[:10]
@@ -494,8 +532,16 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         self.hr_cache_dir = Path(hr_cache_dir) if hr_cache_dir else None
         self.valid_mask_band_count = int(params.get('valid_mask_band_count', 0))
         self.reflectance_band_count = int(params.get('reflectance_band_count', 0))
+        self.output_band_count = int(params.get('output_band_count', 0) or 0)
+        self.output_band_indices = params.get('output_band_indices', None)
         self.use_hard_mask_cache = bool(params.get('use_hard_mask_cache', self.hard_mask_cache_dir is not None))
         self.use_hr_cache = bool(params.get('use_hr_cache', self.hr_cache_dir is not None))
+        self.build_hard_mask_cache_on_miss = bool(params.get('build_hard_mask_cache_on_miss', True))
+        self.build_mask_cache_on_miss = bool(params.get('build_mask_cache_on_miss', True))
+        self.require_tile_cache = bool(params.get('require_tile_cache', False))
+        self.filter_to_tile_cache = bool(params.get('filter_to_tile_cache', self.require_tile_cache))
+        self.require_hr_cache = bool(params.get('require_hr_cache', False))
+        self.filter_to_hr_cache = bool(params.get('filter_to_hr_cache', self.require_hr_cache))
         hard_cache_payload = {
             'version': 2,
             'valid_mask_band_count': self.valid_mask_band_count,
@@ -590,6 +636,24 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         if not self.enable_hr_zero_filter and self._target_sample_num is not None:
             if self._target_sample_num < len(self.tile_ids):
                 self.tile_ids = self.tile_ids[: self._target_sample_num]
+
+        if self.filter_to_tile_cache:
+            before_cache_filter = len(self.tile_ids)
+            self.tile_ids = [tile_id for tile_id in self.tile_ids if self._tile_cache_files_exist(tile_id)]
+            removed_cache_miss = before_cache_filter - len(self.tile_ids)
+            print(
+                f"[Dataset INFO] Tile-cache filter enabled: kept={len(self.tile_ids)} "
+                f"removed_cache_miss={removed_cache_miss}"
+            )
+
+        if self.filter_to_hr_cache:
+            before_hr_filter = len(self.tile_ids)
+            self.tile_ids = [tile_id for tile_id in self.tile_ids if self._hr_cache_file_exists(tile_id)]
+            removed_hr_miss = before_hr_filter - len(self.tile_ids)
+            print(
+                f"[Dataset INFO] HR-cache filter enabled: kept={len(self.tile_ids)} "
+                f"removed_cache_miss={removed_hr_miss}"
+            )
         
         print(f"[Dataset INFO] Initialized for {len(self.tile_ids)} tile locations.")
         if self.tile_ids:
@@ -609,6 +673,10 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                 print(f"  - External Cloud Mask Dir: {self.cloud_mask_dir}")
         if self.reflectance_band_count > 0:
             print(f"  - Reflectance Input Bands: first {self.reflectance_band_count}")
+        if self.output_band_indices is not None:
+            print(f"  - Output Target Bands: indices {_as_index_list(self.output_band_indices)}")
+        elif self.output_band_count > 0:
+            print(f"  - Output Target Bands: first {self.output_band_count}")
         self.can_use_tile_cache = (
             self.use_tile_cache
             and self.cache_dir is not None
@@ -688,6 +756,45 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         except Exception:
             return None
 
+    def _tile_cache_files_exist(self, tile_id):
+        if self.cache_dir is None:
+            return False
+        base = self.cache_dir / f"tile_{tile_id}"
+        has_split_npy = (
+            Path(str(base) + "_reflectance.npy").is_file()
+            and Path(str(base) + "_hard_valid_mask.npy").is_file()
+            and Path(str(base) + "_day_of_year.npy").is_file()
+            and (self.cache_dir / f"tile_{tile_id}_file_names.txt").is_file()
+        )
+        return has_split_npy or (self.cache_dir / f"tile_{tile_id}.npz").is_file()
+
+    def _first_cached_or_indexed_file_name(self, tile_id):
+        if self.cache_dir is not None:
+            names_path = self.cache_dir / f"tile_{tile_id}_file_names.txt"
+            if names_path.is_file():
+                try:
+                    with names_path.open("r", encoding="utf-8") as f:
+                        for line in f:
+                            name = line.strip()
+                            if name:
+                                return name
+                except Exception:
+                    pass
+
+        lr_files = self._tile_to_lr_files.get(tile_id, [])
+        if lr_files:
+            return lr_files[0].name
+        return None
+
+    def _hr_cache_file_exists(self, tile_id):
+        if not self.use_hr_cache or self.hr_cache_dir is None:
+            return False
+        first_name = self._first_cached_or_indexed_file_name(tile_id)
+        if not first_name:
+            return False
+        target_hr_path = self.hr_dir / first_name
+        return self._hr_cache_path(target_hr_path).is_file()
+
     def _hard_mask_cache_paths(self, tile_id):
         base = self.hard_mask_cache_dir / f"tile_{tile_id}_hardmask_{self.hard_mask_cache_key}"
         return Path(str(base) + "_valid.npy"), Path(str(base) + "_names.txt")
@@ -710,6 +817,8 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                     return hard_mask
             except Exception:
                 pass
+        if not self.build_hard_mask_cache_on_miss:
+            return None
 
         hard_mask_list = []
         try:
@@ -772,6 +881,8 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                     return mask_prob, time_valid
             except Exception:
                 pass
+        if not self.build_mask_cache_on_miss:
+            return None, None
 
         mask_prob_list = []
         time_valid_list = []
@@ -835,6 +946,11 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                     return torch.from_numpy(cached_hr).float()
                 except Exception:
                     pass
+            if self.require_hr_cache:
+                raise RuntimeError(
+                    f"HR cache required but missing/unreadable for {target_hr_path.name}, "
+                    f"cache_path={hr_cache_path}"
+                )
 
         with rasterio.open(target_hr_path) as src:
             hr_img = src.read()
@@ -880,6 +996,10 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
             return cached_sample
 
         cache_payload = self._load_tile_cache(tile_id) if self.can_use_tile_cache else None
+        if cache_payload is None and self.require_tile_cache:
+            raise RuntimeError(
+                f"Tile cache required but missing/bypassed for tile_id={tile_id}, cache_dir={self.cache_dir}"
+            )
         lr_files = []
         cached_file_names = None
         cached_reflectance = None
@@ -931,6 +1051,11 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         hr_fname_pattern = lr_files[0].name
         target_hr_path = self.hr_dir / hr_fname_pattern
         hr_tensor = self._load_or_build_hr_tensor(target_hr_path)
+        hr_tensor = _select_output_bands_tensor(
+            hr_tensor,
+            output_band_count=self.output_band_count,
+            output_band_indices=self.output_band_indices,
+        )
 
         processed_lr_timesteps = []
         timestamps = []
@@ -1103,6 +1228,152 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                 f"processed_cache=miss)."
             )
         return sample
+
+class MultiPathAnytimeTemporalDataset(torch.utils.data.Dataset):
+    """
+    Concatenate multiple processed-year AnytimeTemporalDataset roots.
+
+    Each root remains an independent child dataset so identical tile ids from
+    different years are not merged into one longer temporal sequence.
+    """
+    def __init__(self, **params):
+        parent_configs = params.get('parent_configs', {})
+        inner_target = params.get('inner_target', 'datapipe.datasets.AnytimeTemporalDataset')
+        inner_class = util_common.get_obj_from_str(str(inner_target))
+        if inner_class is MultiPathAnytimeTemporalDataset:
+            raise ValueError("MultiPathAnytimeTemporalDataset cannot wrap itself")
+
+        roots = self._as_list(
+            params.get('dataset_roots', params.get('roots', params.get('data_roots', None)))
+        )
+        split = params.get('split', None)
+        if roots:
+            if not split:
+                raise ValueError("Multi-path dataset with dataset_roots requires params.split")
+            lr_dirs = [Path(root) / str(split) / 'LR' for root in roots]
+            hr_dirs = [Path(root) / str(split) / 'HR' for root in roots]
+        else:
+            lr_dirs = [Path(p) for p in self._as_list(params.get('lr_dirs', params.get('lr_dir', None)))]
+            hr_dirs = [Path(p) for p in self._as_list(params.get('hr_dirs', params.get('hr_dir', None)))]
+            if not lr_dirs or not hr_dirs:
+                raise ValueError("Multi-path dataset requires dataset_roots or lr_dirs/hr_dirs")
+
+        if len(lr_dirs) != len(hr_dirs):
+            raise ValueError(f"lr_dirs/hr_dirs length mismatch: {len(lr_dirs)} vs {len(hr_dirs)}")
+
+        dataset_names = self._as_list(params.get('dataset_names', params.get('names', None)))
+        if dataset_names and len(dataset_names) != len(lr_dirs):
+            raise ValueError(
+                f"dataset_names length mismatch: {len(dataset_names)} vs {len(lr_dirs)}"
+            )
+        if not dataset_names:
+            dataset_names = [
+                self._default_dataset_name(root if roots else lr_dirs[i], i)
+                for i, root in enumerate(roots or lr_dirs)
+            ]
+        dataset_names = [str(x) for x in dataset_names]
+
+        reserved = {
+            'parent_configs', 'inner_target',
+            'dataset_roots', 'roots', 'data_roots', 'split',
+            'lr_dir', 'hr_dir', 'lr_dirs', 'hr_dirs',
+            'dataset_names', 'names',
+            'cache_dir', 'mask_cache_dir', 'hard_mask_cache_dir', 'hr_cache_dir',
+            'cache_dirs', 'mask_cache_dirs', 'hard_mask_cache_dirs', 'hr_cache_dirs',
+            'cache_root', 'mask_cache_root', 'hard_mask_cache_root', 'hr_cache_root',
+        }
+        shared_params = {k: v for k, v in params.items() if k not in reserved}
+
+        self.datasets = []
+        self.dataset_names = dataset_names
+        self.lr_dirs = [Path(p) for p in lr_dirs]
+        self.hr_dirs = [Path(p) for p in hr_dirs]
+        self.lr_dir = self.lr_dirs
+        self.hr_dir = self.hr_dirs
+        self._cum_lengths = []
+
+        print("[Dataset INFO] MultiPathAnytimeTemporalDataset __init__: begin")
+        print(f"  - split: {split if split else 'explicit lr_dirs/hr_dirs'}")
+        print(f"  - roots: {len(self.lr_dirs)}")
+
+        total = 0
+        for idx, (name, lr_dir, hr_dir) in enumerate(zip(dataset_names, self.lr_dirs, self.hr_dirs)):
+            if not lr_dir.is_dir() or not hr_dir.is_dir():
+                raise FileNotFoundError(
+                    f"Missing LR/HR directory for dataset '{name}': "
+                    f"lr_dir={lr_dir} exists={lr_dir.is_dir()} "
+                    f"hr_dir={hr_dir} exists={hr_dir.is_dir()}"
+                )
+
+            child_params = dict(shared_params)
+            child_params['lr_dir'] = str(lr_dir)
+            child_params['hr_dir'] = str(hr_dir)
+            child_params['parent_configs'] = parent_configs
+            self._assign_cache_param(child_params, params, 'cache_dir', 'cache_dirs', 'cache_root', name, idx)
+            self._assign_cache_param(child_params, params, 'mask_cache_dir', 'mask_cache_dirs', 'mask_cache_root', name, idx)
+            self._assign_cache_param(child_params, params, 'hard_mask_cache_dir', 'hard_mask_cache_dirs', 'hard_mask_cache_root', name, idx)
+            self._assign_cache_param(child_params, params, 'hr_cache_dir', 'hr_cache_dirs', 'hr_cache_root', name, idx)
+
+            print(f"[Dataset INFO] Multi-path child[{idx}] name={name} lr={lr_dir} hr={hr_dir}")
+            child = inner_class(**child_params)
+            self.datasets.append(child)
+            total += len(child)
+            self._cum_lengths.append(total)
+            print(f"[Dataset INFO] Multi-path child[{idx}] name={name} len={len(child)}")
+
+        if not self.datasets:
+            raise ValueError("Multi-path dataset built zero child datasets")
+        print(f"[Dataset INFO] MultiPathAnytimeTemporalDataset __init__: done total_len={total}")
+
+    @staticmethod
+    def _as_list(value):
+        if value is None:
+            return []
+        try:
+            from omegaconf import OmegaConf
+            if OmegaConf.is_config(value):
+                value = OmegaConf.to_container(value, resolve=True)
+        except Exception:
+            pass
+        if isinstance(value, (str, Path)):
+            return [value]
+        return list(value)
+
+    @staticmethod
+    def _default_dataset_name(root_or_lr_dir, idx):
+        path = Path(root_or_lr_dir)
+        if path.name in {'LR', 'HR'}:
+            path = path.parent.parent
+        if path.name.startswith('processed_data') and path.parent.name:
+            return path.parent.name
+        return path.name or f"dataset_{idx}"
+
+    @classmethod
+    def _assign_cache_param(cls, child_params, params, singular_key, plural_key, root_key, name, idx):
+        values = cls._as_list(params.get(plural_key, None))
+        if values:
+            if idx >= len(values):
+                raise ValueError(f"{plural_key} has {len(values)} entries, but dataset index {idx} is required")
+            child_params[singular_key] = str(values[idx])
+            return
+
+        root_value = params.get(root_key, None)
+        scalar_value = params.get(singular_key, None)
+        base = root_value if root_value is not None else scalar_value
+        if base:
+            child_params[singular_key] = str(Path(str(base)) / str(name))
+
+    def __len__(self):
+        return self._cum_lengths[-1]
+
+    def __getitem__(self, index):
+        if index < 0:
+            index += len(self)
+        if index < 0 or index >= len(self):
+            raise IndexError(index)
+        dataset_idx = bisect.bisect_right(self._cum_lengths, index)
+        prev = self._cum_lengths[dataset_idx - 1] if dataset_idx > 0 else 0
+        return self.datasets[dataset_idx][index - prev]
 
 # ==============================================================================
 # 3. 强化的数据集创建函数

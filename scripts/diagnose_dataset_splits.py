@@ -20,6 +20,46 @@ def _as_dict_config(cfg):
     return OmegaConf.to_container(cfg, resolve=True)
 
 
+def _as_list(value):
+    if value is None:
+        return []
+    if OmegaConf.is_config(value):
+        value = OmegaConf.to_container(value, resolve=True)
+    if isinstance(value, (str, Path)):
+        return [value]
+    return list(value)
+
+
+def _phase_dir_pairs(params):
+    roots = _as_list(params.get("dataset_roots", params.get("roots", params.get("data_roots", None))))
+    split = params.get("split", None)
+    if roots and split:
+        return [
+            (Path(str(root)) / str(split) / "LR", Path(str(root)) / str(split) / "HR")
+            for root in roots
+        ]
+
+    lr_dirs = _as_list(params.get("lr_dirs", None))
+    hr_dirs = _as_list(params.get("hr_dirs", None))
+    if lr_dirs or hr_dirs:
+        return [(Path(str(lr)), Path(str(hr))) for lr, hr in zip(lr_dirs, hr_dirs)]
+
+    lr_dir = params.get("lr_dir", None)
+    hr_dir = params.get("hr_dir", None)
+    if lr_dir is not None and hr_dir is not None:
+        return [(Path(str(lr_dir)), Path(str(hr_dir)))]
+
+    return []
+
+
+def _fmt_dir_pairs(dir_pairs, max_items=3):
+    if not dir_pairs:
+        return "dirs=n/a"
+    preview = [f"{lr.parent.parent.name}:{lr}|{hr}" for lr, hr in dir_pairs[:max_items]]
+    suffix = "" if len(dir_pairs) <= max_items else f" ... +{len(dir_pairs) - max_items} more"
+    return "; ".join(preview) + suffix
+
+
 def _tensor_stats(tensor):
     if not torch.is_tensor(tensor):
         return None
@@ -55,12 +95,19 @@ def _fmt_stats(name, stats):
 
 
 def _infer_test_dirs_from_train(cfg, params):
+    existing_pairs = _phase_dir_pairs(params)
+    if existing_pairs and all(lr.exists() and hr.exists() for lr, hr in existing_pairs):
+        return params
+
     lr_dir = Path(str(params.get("lr_dir", "")))
     hr_dir = Path(str(params.get("hr_dir", "")))
     if lr_dir.exists() and hr_dir.exists():
         return params
 
     train_params = cfg.data.train.params
+    if not hasattr(train_params, "lr_dir") or not hasattr(train_params, "hr_dir"):
+        return params
+
     train_lr = Path(str(train_params.lr_dir))
     train_hr = Path(str(train_params.hr_dir))
     if train_lr.parent.name == "train" and train_hr.parent.name == "train":
@@ -129,12 +176,20 @@ def summarize_phase(cfg, phase, max_samples):
         return None
 
     params = phase_cfg.get("params", {})
-    lr_dir = Path(str(params.get("lr_dir", "")))
-    hr_dir = Path(str(params.get("hr_dir", "")))
-    if not lr_dir.exists() or not hr_dir.exists():
+    dir_pairs = _phase_dir_pairs(params)
+    missing_pairs = [(lr, hr) for lr, hr in dir_pairs if not lr.exists() or not hr.exists()]
+    if not dir_pairs or missing_pairs:
+        if missing_pairs:
+            lr_dir, hr_dir = missing_pairs[0]
+            missing_msg = (
+                f"lr_dir={lr_dir} exists={lr_dir.exists()} "
+                f"hr_dir={hr_dir} exists={hr_dir.exists()}"
+            )
+        else:
+            missing_msg = "no lr/hr dirs configured"
         print(
             f"[split-diff][WARN] phase={phase} skipped because dirs are missing: "
-            f"lr_dir={lr_dir} exists={lr_dir.exists()} hr_dir={hr_dir} exists={hr_dir.exists()}"
+            f"{missing_msg}"
         )
         return None
 
@@ -144,7 +199,7 @@ def summarize_phase(cfg, phase, max_samples):
     indices = _sample_indices(n, max_samples)
     print(
         f"[split-diff][INFO] phase={phase} len={n} sampled={len(indices)} "
-        f"lr_dir={lr_dir} hr_dir={hr_dir}"
+        f"{_fmt_dir_pairs(dir_pairs)}"
     )
 
     lr_means, gt_means, lr_stds, gt_stds = [], [], [], []
