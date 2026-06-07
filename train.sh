@@ -2,7 +2,7 @@
 set -euo pipefail
 
 GPU_ID="${1:-0}"
-CFG_PATH="${2:-configs/ablation/aef_time_aligned_cosine_default.yaml}"
+CFG_PATH="${2:-configs/ablation/aef_time_aligned_cosine_large_dequant.yaml}"
 MODE="${3:-train}"
 PYTHON_BIN="${PYTHON_BIN:-/mnt/lm_data_afs/wangzining/charles/miniconda3/envs/alphaearth/bin/python}"
 

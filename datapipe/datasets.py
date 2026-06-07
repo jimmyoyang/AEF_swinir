@@ -55,6 +55,12 @@ class PreprocessedTileDataset(torch.utils.data.Dataset):
         self.scale_factor = params.get('scale_factor', 3)
         self.output_band_count = int(params.get('output_band_count', 0) or 0)
         self.output_band_indices = params.get('output_band_indices', None)
+        self.hr_normalization = str(params.get('hr_normalization', 'robust')).lower()
+        self.hr_l2_normalize = bool(params.get('hr_l2_normalize', False))
+        self.hr_clip = bool(params.get('hr_clip', True))
+        self.hr_dequantize_power = float(params.get('hr_dequantize_power', 2.0))
+        self.hr_dequantize_scale = float(params.get('hr_dequantize_scale', 127.5))
+        self.hr_dequantize_offset = float(params.get('hr_dequantize_offset', 127.0))
 
     def __len__(self):
         return len(self.lr_files)
@@ -88,8 +94,15 @@ class PreprocessedTileDataset(torch.utils.data.Dataset):
         lr_normalized = robust_per_image_normalize(lr_img)
         lr_tensor = torch.from_numpy(lr_normalized).float()
         
-        # hr_tensor = torch.from_numpy(hr_img.astype(np.float32)) / 127.5 - 1.0
-        hr_tensor = torch.from_numpy(robust_per_image_normalize(hr_img)).float()
+        hr_tensor = torch.from_numpy(_normalize_hr_target(
+            hr_img,
+            mode=self.hr_normalization,
+            l2_normalize=self.hr_l2_normalize,
+            clip=self.hr_clip,
+            dequantize_power=self.hr_dequantize_power,
+            dequantize_scale=self.hr_dequantize_scale,
+            dequantize_offset=self.hr_dequantize_offset,
+        )).float()
         hr_tensor = _select_output_bands_tensor(
             hr_tensor,
             output_band_count=self.output_band_count,
@@ -261,6 +274,74 @@ def robust_per_image_normalize(img, lo=1, hi=99):
         normalized_bands.append(normalized_band * 2 - 1)  # 缩放到 [-1, 1]
 
     return np.stack(normalized_bands, axis=0)
+
+
+def aef_uint8_dequantize(img, power=2.0, scale=127.5, offset=127.0):
+    """Invert the GEE quantize_aef() transform used by the download notebook."""
+    x = img.astype(np.float32)
+    sat = (x - float(offset)) / float(scale)
+    out = np.sign(sat) * np.power(np.abs(sat), float(power))
+    return out.astype(np.float32, copy=False)
+
+
+def _l2_normalize_embedding_chw(img, eps=1e-8):
+    norm = np.linalg.norm(img.astype(np.float32), axis=0, keepdims=True)
+    return np.divide(
+        img,
+        np.maximum(norm, float(eps)),
+        out=np.zeros_like(img, dtype=np.float32),
+        where=norm > float(eps),
+    ).astype(np.float32, copy=False)
+
+
+def _normalize_hr_target(
+    hr_img,
+    mode='robust',
+    l2_normalize=False,
+    clip=True,
+    eps=1e-8,
+    dequantize_power=2.0,
+    dequantize_scale=127.5,
+    dequantize_offset=127.0,
+):
+    """Normalize HR/target data.
+
+    For AlphaEarth exports produced by landsat_alphaearth_wholescene_sample_style,
+    the HR files are uint8 values from quantize_aef(), not ordinary imagery.
+    """
+    mode = str(mode or 'robust').lower()
+    if mode in {'robust', 'percentile', 'per_image_percentile'}:
+        out = robust_per_image_normalize(hr_img).astype(np.float32)
+    elif mode in {'identity', 'raw', 'none'}:
+        out = np.nan_to_num(hr_img.astype(np.float32), nan=0.0, posinf=1.0, neginf=-1.0)
+    elif mode in {'aef_uint8_dequantize', 'aef_quantized_uint8', 'alphaearth_uint8_dequantize'}:
+        out = aef_uint8_dequantize(
+            hr_img,
+            power=dequantize_power,
+            scale=dequantize_scale,
+            offset=dequantize_offset,
+        )
+        out = np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=-1.0)
+    elif mode in {'aef_auto', 'alphaearth_auto'}:
+        finite = hr_img[np.isfinite(hr_img)]
+        if finite.size and float(np.nanmax(finite)) > 2.0 and float(np.nanmin(finite)) >= 0.0:
+            out = aef_uint8_dequantize(
+                hr_img,
+                power=dequantize_power,
+                scale=dequantize_scale,
+                offset=dequantize_offset,
+            )
+        else:
+            out = hr_img.astype(np.float32)
+        out = np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=-1.0)
+    else:
+        raise ValueError(f"Unknown hr_normalization mode: {mode}")
+
+    if clip:
+        out = np.clip(out, -1.0, 1.0)
+    if l2_normalize:
+        out = _l2_normalize_embedding_chw(out, eps=eps)
+    return out.astype(np.float32, copy=False)
 
 
 def _safe_resize_mask(mask_hw, target_h, target_w):
@@ -544,6 +625,13 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         self.reflectance_band_count = int(params.get('reflectance_band_count', 0))
         self.output_band_count = int(params.get('output_band_count', 0) or 0)
         self.output_band_indices = params.get('output_band_indices', None)
+        self.hr_normalization = str(params.get('hr_normalization', 'robust')).lower()
+        self.hr_l2_normalize = bool(params.get('hr_l2_normalize', False))
+        self.hr_clip = bool(params.get('hr_clip', True))
+        self.hr_normalize_eps = float(params.get('hr_normalize_eps', 1e-8))
+        self.hr_dequantize_power = float(params.get('hr_dequantize_power', 2.0))
+        self.hr_dequantize_scale = float(params.get('hr_dequantize_scale', 127.5))
+        self.hr_dequantize_offset = float(params.get('hr_dequantize_offset', 127.0))
         self.use_hard_mask_cache = bool(params.get('use_hard_mask_cache', self.hard_mask_cache_dir is not None))
         self.use_hr_cache = bool(params.get('use_hr_cache', self.hr_cache_dir is not None))
         self.build_hard_mask_cache_on_miss = bool(params.get('build_hard_mask_cache_on_miss', True))
@@ -559,7 +647,19 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         self.hard_mask_cache_key = hashlib.md5(
             json.dumps(hard_cache_payload, sort_keys=True).encode('utf-8')
         ).hexdigest()[:10]
-        self.hr_cache_key = hashlib.md5(b"hr_robust_per_image_normalize_v1_lo1_hi99").hexdigest()[:10]
+        hr_cache_payload = {
+            'version': 2,
+            'mode': self.hr_normalization,
+            'l2_normalize': self.hr_l2_normalize,
+            'clip': self.hr_clip,
+            'eps': self.hr_normalize_eps,
+            'dequantize_power': self.hr_dequantize_power,
+            'dequantize_scale': self.hr_dequantize_scale,
+            'dequantize_offset': self.hr_dequantize_offset,
+        }
+        self.hr_cache_key = hashlib.md5(
+            json.dumps(hr_cache_payload, sort_keys=True).encode('utf-8')
+        ).hexdigest()[:10]
         self.tile_cache_mem_size = int(params.get('tile_cache_mem_size', 64))
         self.slow_sample_warn_sec = float(params.get('slow_sample_warn_sec', 1.5))
         self.slow_sample_warn_max = int(params.get('slow_sample_warn_max', 5))
@@ -710,6 +810,10 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
             print(f"  - Output Target Bands: indices {_as_index_list(self.output_band_indices)}")
         elif self.output_band_count > 0:
             print(f"  - Output Target Bands: first {self.output_band_count}")
+        print(
+            f"  - HR Target Normalization: {self.hr_normalization} "
+            f"(l2_normalize={self.hr_l2_normalize}, clip={self.hr_clip})"
+        )
         self.can_use_tile_cache = (
             self.use_tile_cache
             and self.cache_dir is not None
@@ -1085,7 +1189,16 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
 
         with rasterio.open(target_hr_path) as src:
             hr_img = src.read()
-        hr_norm = robust_per_image_normalize(hr_img).astype(np.float32)
+        hr_norm = _normalize_hr_target(
+            hr_img,
+            mode=self.hr_normalization,
+            l2_normalize=self.hr_l2_normalize,
+            clip=self.hr_clip,
+            eps=self.hr_normalize_eps,
+            dequantize_power=self.hr_dequantize_power,
+            dequantize_scale=self.hr_dequantize_scale,
+            dequantize_offset=self.hr_dequantize_offset,
+        ).astype(np.float32)
 
         if self.use_hr_cache and self.hr_cache_dir is not None:
             try:

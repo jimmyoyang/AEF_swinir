@@ -6,24 +6,24 @@ model:
     upscale: 3
     upsampler: 'pixelshuffle'
     window_size: 8
-    embed_dim: 180
-    depths: [6, 6, 6, 6]
-    num_heads: [6, 6, 6, 6]
+    embed_dim: 240
+    depths: [6, 6, 6, 6, 6, 6, 6, 6, 6]
+    num_heads: [8, 8, 8, 8, 8, 8, 8, 8, 8]
     mlp_ratio: 4
     resi_connection: '1conv'
     out_channels: 64
     fusion_module: 'lightweight_channel_attention'
     use_cross_attention: false
-    cross_num_heads: 6
+    cross_num_heads: 8
     cross_downsample_rate: 1
     cross_concat_value: false
     use_pos_emb: true
     use_learnable_pos_emb: true
-    pos_emb_dim: 180
+    pos_emb_dim: 240
     output_l2_normalize: true
     output_normalize_eps: 1.0e-8
     temporal_attention_params:
-      num_heads: 6
+      num_heads: 8
 
 data:
   train:
@@ -62,9 +62,9 @@ data:
         - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer/cache/train"
         - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer/cache/train"
         - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer/cache/train"
-      mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine/train/mask"
-      hard_mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine/train/hard"
-      hr_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine/train/hr"
+      mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/train/mask"
+      hard_mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/train/hard"
+      hr_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/train/hr"
       valid_mask_band_count: 9
       reflectance_band_count: 9
       hr_normalization: aef_uint8_dequantize
@@ -102,9 +102,9 @@ data:
         - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer/cache/val"
         - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer/cache/val"
         - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer/cache/val"
-      mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine/val/mask"
-      hard_mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine/val/hard"
-      hr_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine/val/hr"
+      mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/val/mask"
+      hard_mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/val/hard"
+      hr_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/val/hr"
       valid_mask_band_count: 9
       reflectance_band_count: 9
       hr_normalization: aef_uint8_dequantize
@@ -140,9 +140,9 @@ data:
         - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer/cache/test"
         - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer/cache/test"
         - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer/cache/test"
-      mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine/test/mask"
-      hard_mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine/test/hard"
-      hr_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine/test/hr"
+      mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/test/mask"
+      hard_mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/test/hard"
+      hr_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/test/hr"
       valid_mask_band_count: 9
       reflectance_band_count: 9
       hr_normalization: aef_uint8_dequantize
@@ -182,8 +182,8 @@ features:
       soft_mask_sigma: 2.0
 
 train:
-  save_dir: "./training_logs/experiments/aef_time_aligned_cosine"
-  batch: [48, 8]
+  save_dir: "./training_logs/experiments/aef_time_aligned_cosine_large_dequant"
+  batch: [12, 4]
   iterations: 20000
   lr: 0.00005
   lr_schedule: "ReduceLROnPlateau"
@@ -209,8 +209,8 @@ train:
   val_freq: 500
   save_before_val: true
   skip_val_if_not_reached: true
-  val_max_batches: 4
-  val_max_samples: 32
+  val_max_batches: 2
+  val_max_samples: 8
   val_debug_max_samples: 8
   val_compute_expensive_metrics: false
   val_timing_log: true
