@@ -581,6 +581,8 @@ class SwinIR(nn.Module):
                  use_spectral_postprocessor=False,
                  spectral_postprocessor_type='gumbel_routing',
                  spectral_postprocessor_params=None,
+                 output_l2_normalize=False,
+                 output_normalize_eps=1e-8,
                  **kwargs):
 
         super(SwinIR, self).__init__()
@@ -599,6 +601,8 @@ class SwinIR(nn.Module):
         # pos_emb_dim==0 表示与 embed_dim 相同
         self.pos_emb_dim = pos_emb_dim or embed_dim
         self.use_spectral_postprocessor = use_spectral_postprocessor
+        self.output_l2_normalize = bool(output_l2_normalize)
+        self.output_normalize_eps = float(output_normalize_eps)
 
         if self.use_pos_emb:
             if self.use_learnable_pos_emb:
@@ -825,5 +829,8 @@ class SwinIR(nn.Module):
 
         if self.spectral_postprocessor is not None:
             x = self.spectral_postprocessor(x)
-        
+
+        if self.output_l2_normalize:
+            x = F.normalize(x, p=2, dim=1, eps=self.output_normalize_eps)
+
         return x

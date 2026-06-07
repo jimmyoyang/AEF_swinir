@@ -418,6 +418,16 @@ def _stable_file_list_hash(file_names):
     return hashlib.md5(blob.encode("utf-8")).hexdigest()[:10]
 
 
+def _extract_date_str_from_name(name):
+    match = re.search(r'(?P<date>\d{8})', Path(str(name)).name)
+    return match.group('date') if match else None
+
+
+def _extract_year_from_name(name):
+    date_str = _extract_date_str_from_name(name)
+    return int(date_str[:4]) if date_str else None
+
+
 def _atomic_save_npy(path, array):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -555,6 +565,16 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         self.slow_sample_warn_max = int(params.get('slow_sample_warn_max', 5))
         self._slow_sample_warn_count = 0
         self.max_timesteps_per_sample = int(params.get('max_timesteps_per_sample', 0))
+        self.time_alignment = str(params.get('time_alignment', 'legacy')).lower()
+        if self.time_alignment in {'none', 'off', 'false'}:
+            self.time_alignment = 'legacy'
+        target_year = params.get('target_year', None)
+        if target_year in (None, '', 'auto', 'infer'):
+            self.target_year = None
+        else:
+            self.target_year = int(target_year)
+        self.hr_target_strategy = str(params.get('hr_target_strategy', 'legacy')).lower()
+        self.time_alignment_strict = bool(params.get('time_alignment_strict', False))
         self._tile_cache_mem = OrderedDict()
 
         self.enable_hr_zero_filter = bool(params.get('enable_hr_zero_filter', True))
@@ -574,6 +594,7 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         self._sample_cache_mem = OrderedDict()
         self._pair_zero_ratio_map = _load_hr_zero_ratio_manifest(self.hr_zero_ratio_manifest) if self.enable_hr_zero_filter else {}
         self._tile_to_lr_files = defaultdict(list)
+        self._tile_to_hr_files = defaultdict(list)
 
         # 关键性能优化：仅扫描一次 LR 目录并建立 tile -> files 索引。
         print("[Dataset INFO] Building LR file index (single pass)...")
@@ -586,9 +607,16 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
             self._tile_to_lr_files[k].sort()
         print(f"[Dataset INFO] LR index done: {len(self._tile_to_lr_files)} tiles indexed")
         
-        # 扫描HR目录以确定所有目标瓦片ID (保留您的逻辑)
-        self.tile_ids = sorted(list({re.search(r'tile_(\d+_\d+)\.tif', f.name).group(1) 
-                                     for f in self.hr_dir.glob('*_tile_*.tif')}))
+        # 扫描HR目录以确定所有目标瓦片ID。
+        for hr_path in self.hr_dir.glob('*_tile_*.tif'):
+            m = re.search(r'tile_(\d+_\d+)\.tif', hr_path.name)
+            if m is None:
+                continue
+            self._tile_to_hr_files[m.group(1)].append(hr_path)
+        for k in list(self._tile_to_hr_files.keys()):
+            self._tile_to_hr_files[k].sort()
+        print(f"[Dataset INFO] HR index done: {len(self._tile_to_hr_files)} tiles indexed")
+        self.tile_ids = sorted(self._tile_to_hr_files.keys())
 
         if self.enable_hr_zero_filter:
             if self.pre_filter_sample_num and 0 < self.pre_filter_sample_num < len(self.tile_ids):
@@ -665,6 +693,11 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
         else:
             print("  - Tile IDs Preview: EMPTY")
         print(f"  - Time Feature Injection: {'Enabled' if self.use_time_band else 'Disabled'}")
+        print(
+            f"  - Time Alignment: {self.time_alignment} "
+            f"(target_year={self.target_year if self.target_year is not None else 'infer'}, "
+            f"hr_target_strategy={self.hr_target_strategy})"
+        )
         print(f"  - Mask Feature Injection: {'Enabled' if self.use_mask_band else 'Disabled'}")
         if self.use_mask_band:
             print(f"  - Mask Type: {self.mask_type}")
@@ -707,6 +740,97 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.tile_ids)
+
+    def _uses_same_year_alignment(self):
+        return self.time_alignment in {'same_year', 'annual', 'year', 'yearly'}
+
+    def _resolve_target_year(self, tile_id, lr_names=None):
+        if self.target_year is not None:
+            return self.target_year
+        if not self._uses_same_year_alignment():
+            return None
+
+        hr_years = sorted({
+            y for y in (_extract_year_from_name(p.name) for p in self._tile_to_hr_files.get(tile_id, []))
+            if y is not None
+        })
+        if hr_years:
+            if self.time_alignment_strict and len(hr_years) > 1:
+                raise ValueError(f"Multiple HR years for tile_id={tile_id}: {hr_years}")
+            return hr_years[0]
+
+        lr_years = sorted({
+            y for y in (_extract_year_from_name(n) for n in (lr_names or []))
+            if y is not None
+        })
+        if lr_years:
+            if self.time_alignment_strict and len(lr_years) > 1:
+                raise ValueError(f"Multiple LR years for tile_id={tile_id}: {lr_years}")
+            return lr_years[0]
+
+        if self.time_alignment_strict:
+            raise ValueError(f"Could not infer target year for tile_id={tile_id}")
+        return None
+
+    def _filter_indices_for_time_alignment(self, tile_id, names):
+        target_year = self._resolve_target_year(tile_id, names)
+        if target_year is None:
+            return list(range(len(names)))
+
+        indices = [
+            idx for idx, name in enumerate(names)
+            if _extract_year_from_name(name) == target_year
+        ]
+        if not indices and self.time_alignment_strict:
+            raise FileNotFoundError(
+                f"No LR timesteps aligned to year={target_year} for tile_id={tile_id}"
+            )
+        return indices or list(range(len(names)))
+
+    def _filter_lr_files_for_time_alignment(self, tile_id, lr_files):
+        if not self._uses_same_year_alignment():
+            return list(lr_files)
+        keep_indices = self._filter_indices_for_time_alignment(
+            tile_id,
+            [Path(p).name for p in lr_files],
+        )
+        return [lr_files[i] for i in keep_indices]
+
+    def _resolve_hr_target_path(self, tile_id, lr_files):
+        lr_files = list(lr_files)
+        if not lr_files:
+            raise FileNotFoundError(f"No LR files available to resolve HR target for tile_id={tile_id}")
+
+        if self._uses_same_year_alignment():
+            target_year = self._resolve_target_year(tile_id, [Path(p).name for p in lr_files])
+            hr_candidates = list(self._tile_to_hr_files.get(tile_id, []))
+            if target_year is not None:
+                hr_candidates = [
+                    p for p in hr_candidates
+                    if _extract_year_from_name(p.name) == target_year
+                ]
+
+            strategy = self.hr_target_strategy
+            if strategy in {'same_date', 'match_first_lr_date'}:
+                first_lr_name = Path(lr_files[0]).name
+                exact_path = self.hr_dir / first_lr_name
+                if exact_path.is_file():
+                    return exact_path
+                if self.time_alignment_strict:
+                    raise FileNotFoundError(
+                        f"Missing same-date HR target for tile_id={tile_id}, file={first_lr_name}"
+                    )
+
+            if hr_candidates:
+                return sorted(hr_candidates)[0]
+
+            if self.time_alignment_strict:
+                raise FileNotFoundError(
+                    f"No HR target aligned to year={target_year} for tile_id={tile_id}"
+                )
+
+        # Legacy behavior: use the first LR filename as the HR target filename.
+        return self.hr_dir / Path(lr_files[0]).name
 
     def _load_tile_cache(self, tile_id):
         if not self.use_tile_cache or self.cache_dir is None:
@@ -789,10 +913,17 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
     def _hr_cache_file_exists(self, tile_id):
         if not self.use_hr_cache or self.hr_cache_dir is None:
             return False
+        lr_names = []
         first_name = self._first_cached_or_indexed_file_name(tile_id)
-        if not first_name:
+        if first_name:
+            lr_names.append(first_name)
+        lr_files = [self.lr_dir / n for n in lr_names] if lr_names else self._tile_to_lr_files.get(tile_id, [])
+        if not lr_files:
             return False
-        target_hr_path = self.hr_dir / first_name
+        try:
+            target_hr_path = self._resolve_hr_target_path(tile_id, lr_files)
+        except Exception:
+            return False
         return self._hr_cache_path(target_hr_path).is_file()
 
     def _hard_mask_cache_paths(self, tile_id):
@@ -1015,6 +1146,12 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                     if zr is not None and zr > self.hr_zero_ratio_threshold:
                         continue
                 selected_indices.append(i)
+            if selected_indices:
+                aligned_local_indices = self._filter_indices_for_time_alignment(
+                    tile_id,
+                    [cached_file_names[i] for i in selected_indices],
+                )
+                selected_indices = [selected_indices[i] for i in aligned_local_indices]
             if not selected_indices:
                 raise FileNotFoundError(f"No cached timesteps remain after filtering for tile_id {tile_id}")
 
@@ -1044,12 +1181,15 @@ class AnytimeTemporalDataset(torch.utils.data.Dataset):
                 )
             if not lr_files:
                 raise FileNotFoundError(f"No LR images for tile_id {tile_id}")
+            lr_files = self._filter_lr_files_for_time_alignment(tile_id, lr_files)
+            if not lr_files:
+                raise FileNotFoundError(f"No time-aligned LR images for tile_id {tile_id}")
             if self.max_timesteps_per_sample > 0 and len(lr_files) > self.max_timesteps_per_sample:
                 lr_files = lr_files[-self.max_timesteps_per_sample:]
 
-        # 加载HR (保留您的逻辑)
-        hr_fname_pattern = lr_files[0].name
-        target_hr_path = self.hr_dir / hr_fname_pattern
+        # 加载时间对齐后的 HR 目标。默认 legacy 行为仍使用第一个 LR 文件名；
+        # same_year/annual 模式显式选择同年 HR 目标。
+        target_hr_path = self._resolve_hr_target_path(tile_id, lr_files)
         hr_tensor = self._load_or_build_hr_tensor(target_hr_path)
         hr_tensor = _select_output_bands_tensor(
             hr_tensor,

@@ -8,7 +8,8 @@ It:
 1) Parses the YAML config dump from <run_dir>/training.log
 2) Builds the requested dataset split (val by default)
 3) Detects per-timestep input channels C and injects model.params.in_chans (SwinIR)
-4) For each checkpoint, computes *per-sample* metrics (PSNR/SSIM/ERGAS/SAM/Masked-PSNR)
+4) For each checkpoint, computes *per-sample* metrics
+   (PSNR/SSIM/ERGAS/SAM/Cosine/Angle/Masked-PSNR/Masked-Cosine)
    and saves a CSV.
 5) For selected sample indices, saves side-by-side comparison figures across checkpoints.
 
@@ -216,8 +217,7 @@ def _pick_rgb_channels(num_channels: int, rgb_chn: Sequence[int]) -> Sequence[in
     return [0]
 
 
-def _masked_psnr(gt_hwc: np.ndarray, pred_hwc: np.ndarray, indicating_mask: Optional[torch.Tensor]) -> Optional[float]:
-    """Compute per-band PSNR only over pixels where aggregated indicating_mask is true."""
+def _aggregate_indicating_mask(indicating_mask: Optional[torch.Tensor], target_hw: Tuple[int, int]) -> Optional[np.ndarray]:
     if indicating_mask is None:
         return None
 
@@ -237,11 +237,20 @@ def _masked_psnr(gt_hwc: np.ndarray, pred_hwc: np.ndarray, indicating_mask: Opti
 
     mask = mask.float().unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
 
-    H, W, C = gt_hwc.shape
+    H, W = target_hw
     if tuple(mask.shape[-2:]) != (H, W):
         mask = F.interpolate(mask, size=(H, W), mode="bilinear", align_corners=False)
 
-    m = (mask[0, 0].detach().cpu().numpy() > 0.5)
+    return mask[0, 0].detach().cpu().numpy()
+
+
+def _masked_psnr(gt_hwc: np.ndarray, pred_hwc: np.ndarray, indicating_mask: Optional[torch.Tensor]) -> Optional[float]:
+    """Compute per-band PSNR only over pixels where aggregated indicating_mask is true."""
+    mask = _aggregate_indicating_mask(indicating_mask, gt_hwc.shape[:2])
+    if mask is None:
+        return None
+
+    m = mask > 0.5
     if m.sum() == 0:
         return None
 
@@ -258,6 +267,37 @@ def _masked_psnr(gt_hwc: np.ndarray, pred_hwc: np.ndarray, indicating_mask: Opti
     return float(np.mean(per_band))
 
 
+def _embedding_cosine_metrics(
+    gt_chw: torch.Tensor,
+    pred_chw: torch.Tensor,
+    indicating_mask: Optional[torch.Tensor],
+    eps: float = 1e-8,
+) -> Tuple[float, float, Optional[float]]:
+    gt = gt_chw.float()
+    pred = pred_chw.float()
+    gt_norm = F.normalize(gt, p=2, dim=0, eps=eps)
+    pred_norm = F.normalize(pred, p=2, dim=0, eps=eps)
+    cosine_map = (gt_norm * pred_norm).sum(dim=0).clamp(-1.0, 1.0)
+    valid = gt.norm(p=2, dim=0) > eps
+
+    if valid.any():
+        cosine = float(cosine_map[valid].mean().item())
+        angle_deg = float(torch.rad2deg(torch.acos(cosine_map[valid])).mean().item())
+    else:
+        cosine = float("nan")
+        angle_deg = float("nan")
+
+    masked_cosine = None
+    mask = _aggregate_indicating_mask(indicating_mask, tuple(gt.shape[-2:]))
+    if mask is not None:
+        mask_tensor = torch.from_numpy(mask > 0.5).to(valid.device)
+        masked_valid = valid & mask_tensor
+        if masked_valid.any():
+            masked_cosine = float(cosine_map[masked_valid].mean().item())
+
+    return cosine, angle_deg, masked_cosine
+
+
 @dataclass
 class SampleMetrics:
     idx: int
@@ -266,7 +306,10 @@ class SampleMetrics:
     ssim: float
     ergas: float
     sam: float
+    cosine: float
+    angle_deg: float
     masked_psnr: Optional[float]
+    masked_cosine: Optional[float]
 
 
 def _compute_metrics(gt_chw: torch.Tensor, pred_chw: torch.Tensor, indicating_mask: Optional[torch.Tensor]) -> SampleMetrics:
@@ -284,6 +327,7 @@ def _compute_metrics(gt_chw: torch.Tensor, pred_chw: torch.Tensor, indicating_ma
         ssims.append(float(sewar_ssim(gt_hwc[:, :, b], pred_hwc[:, :, b], MAX=1.0)[0]))
 
     mpsnr = _masked_psnr(gt_hwc, pred_hwc, indicating_mask)
+    cosine, angle_deg, masked_cosine = _embedding_cosine_metrics(gt_chw, pred_chw, indicating_mask)
 
     return SampleMetrics(
         idx=-1,
@@ -292,7 +336,10 @@ def _compute_metrics(gt_chw: torch.Tensor, pred_chw: torch.Tensor, indicating_ma
         ssim=float(np.mean(ssims)),
         ergas=float(sewar_ergas(gt_hwc, pred_hwc)),
         sam=float(sewar_sam(gt_hwc, pred_hwc)),
+        cosine=cosine,
+        angle_deg=angle_deg,
         masked_psnr=mpsnr,
+        masked_cosine=masked_cosine,
     )
 
 
@@ -357,7 +404,10 @@ def _save_metrics_csv(rows: List[SampleMetrics], out_csv: Path) -> None:
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     with out_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["idx", "path", "psnr", "ssim", "ergas", "sam", "masked_psnr"])
+        w.writerow([
+            "idx", "path", "psnr", "ssim", "ergas", "sam",
+            "cosine", "angle_deg", "masked_psnr", "masked_cosine",
+        ])
         for r in rows:
             w.writerow([
                 r.idx,
@@ -366,7 +416,10 @@ def _save_metrics_csv(rows: List[SampleMetrics], out_csv: Path) -> None:
                 f"{r.ssim:.6f}",
                 f"{r.ergas:.6f}",
                 f"{r.sam:.6f}",
+                f"{r.cosine:.6f}",
+                f"{r.angle_deg:.6f}",
                 "" if r.masked_psnr is None else f"{r.masked_psnr:.6f}",
+                "" if r.masked_cosine is None else f"{r.masked_cosine:.6f}",
             ])
 
 
@@ -380,10 +433,15 @@ def _summarize(rows: List[SampleMetrics]) -> Dict[str, float]:
         "ssim": mean_of("ssim"),
         "ergas": mean_of("ergas"),
         "sam": mean_of("sam"),
+        "cosine": mean_of("cosine"),
+        "angle_deg": mean_of("angle_deg"),
     }
     mps = [r.masked_psnr for r in rows if r.masked_psnr is not None]
     if mps:
         out["masked_psnr"] = float(np.mean(mps))
+    mcos = [r.masked_cosine for r in rows if r.masked_cosine is not None]
+    if mcos:
+        out["masked_cosine"] = float(np.mean(mcos))
     return out
 
 
@@ -583,7 +641,13 @@ def main() -> None:
             rows.append(m)
 
         summary = _summarize(rows)
-        print(f"[mean {tag}] PSNR={summary['psnr']:.4f} SSIM={summary['ssim']:.4f} ERGAS={summary['ergas']:.4f} SAM={summary['sam']:.4f}" + (f" Masked-PSNR={summary.get('masked_psnr', float('nan')):.4f}" if 'masked_psnr' in summary else ""))
+        print(
+            f"[mean {tag}] PSNR={summary['psnr']:.4f} "
+            f"Cosine={summary['cosine']:.4f} Angle={summary['angle_deg']:.2f} "
+            f"SSIM={summary['ssim']:.4f} ERGAS={summary['ergas']:.4f} SAM={summary['sam']:.4f}"
+            + (f" Masked-PSNR={summary.get('masked_psnr', float('nan')):.4f}" if 'masked_psnr' in summary else "")
+            + (f" Masked-Cosine={summary.get('masked_cosine', float('nan')):.4f}" if 'masked_cosine' in summary else "")
+        )
 
         out_csv = out_dir / f"per_sample_metrics_{tag}.csv"
         _save_metrics_csv(rows, out_csv)

@@ -43,7 +43,7 @@ class MixedLoss(torch.nn.Module):
         self.data_range = data_range
         self.mse = torch.nn.MSELoss()
         # 启动日志，方便调试配置
-        if torch.cuda.current_device() == 0:
+        if (not torch.cuda.is_available()) or torch.cuda.current_device() == 0:
             print(f"🔥 Initialized MixedLoss | L2_weight={self.l2_weight}, SSIM_weight={self.ssim_weight}, DataRange={self.data_range}")
 
     def forward(self, prediction, target):
@@ -60,6 +60,83 @@ class MixedLoss(torch.nn.Module):
         # 加权求和得到总损失
         total_loss = (self.l2_weight * l2_loss) + (self.ssim_weight * ssim_loss)
         return total_loss
+
+
+class AEFEmbeddingLoss(torch.nn.Module):
+    """
+    Loss for AlphaEarth embedding regression.
+
+    AlphaEarth vectors live on a unit hypersphere, so the cosine term is the
+    geometry-aligned objective. Optional L1/MSE terms can be computed on the
+    normalized vectors to keep the regression scale consistent with that geometry.
+    """
+    def __init__(
+        self,
+        l1_weight=1.0,
+        cosine_weight=1.0,
+        mse_weight=0.0,
+        normalize_vectors=True,
+        normalize_regression_vectors=True,
+        eps=1e-8,
+    ):
+        super().__init__()
+        self.l1_weight = float(l1_weight)
+        self.cosine_weight = float(cosine_weight)
+        self.mse_weight = float(mse_weight)
+        self.normalize_vectors = bool(normalize_vectors)
+        self.normalize_regression_vectors = bool(normalize_regression_vectors)
+        self.eps = float(eps)
+        self.supports_spatial_mask = True
+        print(
+            "🔥 Initialized AEFEmbeddingLoss | "
+            f"L1={self.l1_weight} Cosine={self.cosine_weight} MSE={self.mse_weight} "
+            f"normalize_vectors={self.normalize_vectors} "
+            f"normalize_regression_vectors={self.normalize_regression_vectors}"
+        )
+
+    def _normalize(self, x):
+        return F.normalize(x.float(), p=2, dim=1, eps=self.eps)
+
+    def _pixel_weights(self, target, spatial_mask=None):
+        weights = (target.float().norm(p=2, dim=1) > self.eps).float()
+        if spatial_mask is not None:
+            mask = spatial_mask.float().clamp(0.0, 1.0)
+            if mask.ndim == 3:
+                mask = mask.unsqueeze(1)
+            if mask.shape[-2:] != target.shape[-2:]:
+                mask = F.interpolate(mask, size=target.shape[-2:], mode='bilinear', align_corners=False)
+            weights = weights * mask[:, 0]
+        return weights
+
+    def forward(self, prediction, target, spatial_mask=None):
+        pred_for_cos = self._normalize(prediction) if self.normalize_vectors else prediction.float()
+        target_for_cos = self._normalize(target) if self.normalize_vectors else target.float()
+        pixel_weights = self._pixel_weights(target, spatial_mask=spatial_mask)
+        pixel_denom = pixel_weights.sum().clamp_min(1.0)
+
+        loss = prediction.new_tensor(0.0)
+        if self.cosine_weight > 0:
+            cosine = (pred_for_cos * target_for_cos).sum(dim=1).clamp(-1.0, 1.0)
+            cosine_loss = ((1.0 - cosine) * pixel_weights).sum() / pixel_denom
+            loss = loss + self.cosine_weight * cosine_loss
+
+        if self.normalize_regression_vectors:
+            pred_for_reg = pred_for_cos
+            target_for_reg = target_for_cos
+        else:
+            pred_for_reg = prediction.float()
+            target_for_reg = target.float()
+
+        if self.l1_weight > 0:
+            l1 = (pred_for_reg - target_for_reg).abs() * pixel_weights.unsqueeze(1)
+            l1 = l1.sum() / (pixel_denom * prediction.shape[1]).clamp_min(1.0)
+            loss = loss + self.l1_weight * l1
+        if self.mse_weight > 0:
+            mse = (pred_for_reg - target_for_reg).pow(2) * pixel_weights.unsqueeze(1)
+            mse = mse.sum() / (pixel_denom * prediction.shape[1]).clamp_min(1.0)
+            loss = loss + self.mse_weight * mse
+
+        return loss
 
 # ==============================================================================
 # 1. Trainer 基类（完整实现，包含分布式/数据加载/模型构建核心逻辑）
@@ -521,6 +598,54 @@ class TrainerBase:
         """将[-1,1]裁剪并映射到[0,1]，保留在当前设备上用于快速指标。"""
         return (img_tensor.clamp(-1, 1) + 1.0) * 0.5
 
+    @staticmethod
+    def compute_embedding_cosine_metrics(prediction, target, spatial_masks=None, eps=1e-8):
+        """Compute per-sample cosine similarity and angular error for C-channel embeddings."""
+        pred = prediction.float()
+        gt = target.float()
+        pred_norm = F.normalize(pred, p=2, dim=1, eps=eps)
+        gt_norm = F.normalize(gt, p=2, dim=1, eps=eps)
+
+        cosine_map = (pred_norm * gt_norm).sum(dim=1).clamp(-1.0, 1.0)
+        angle_map = torch.rad2deg(torch.acos(cosine_map))
+
+        valid = gt.norm(p=2, dim=1) > eps
+        valid_count = valid.flatten(1).sum(dim=1)
+        safe_count = valid_count.clamp_min(1)
+
+        sample_cosine = (cosine_map * valid.float()).flatten(1).sum(dim=1) / safe_count
+        sample_angle = (angle_map * valid.float()).flatten(1).sum(dim=1) / safe_count
+        sample_cosine = torch.where(valid_count > 0, sample_cosine, torch.full_like(sample_cosine, float('nan')))
+        sample_angle = torch.where(valid_count > 0, sample_angle, torch.full_like(sample_angle, float('nan')))
+
+        metrics = {
+            'sample_cosine': sample_cosine.detach().cpu().numpy(),
+            'sample_angle_deg': sample_angle.detach().cpu().numpy(),
+        }
+
+        if spatial_masks is not None:
+            if spatial_masks.shape[-2:] != cosine_map.shape[-2:]:
+                spatial_masks = F.interpolate(
+                    spatial_masks,
+                    size=cosine_map.shape[-2:],
+                    mode='bilinear',
+                    align_corners=False,
+                )
+            masked_valid = valid & (spatial_masks[:, 0] > 0.5)
+            masked_count = masked_valid.flatten(1).sum(dim=1)
+            masked_safe_count = masked_count.clamp_min(1)
+            masked_cosine = (
+                (cosine_map * masked_valid.float()).flatten(1).sum(dim=1) / masked_safe_count
+            )
+            masked_cosine = torch.where(
+                masked_count > 0,
+                masked_cosine,
+                torch.full_like(masked_cosine, float('nan')),
+            )
+            metrics['masked_sample_cosine'] = masked_cosine.detach().cpu().numpy()
+
+        return metrics
+
     # 以下为需要子类实现/重写的方法
     def training_step(self, data):
         raise NotImplementedError("Subclass must implement training_step!")
@@ -548,7 +673,9 @@ class TrainerAlphaSR(TrainerBase):
             self.log_data = {
                 'train_loss': {'iters': [], 'values': []},
                 'val_psnr': {'iters': [], 'values': []},
-                'val_ssim': {'iters': [], 'values': []}
+                'val_ssim': {'iters': [], 'values': []},
+                'val_cosine': {'iters': [], 'values': []},
+                'val_angle_deg': {'iters': [], 'values': []},
             }
 
     def setup_optimization(self):
@@ -801,10 +928,13 @@ class TrainerAlphaSR(TrainerBase):
                     align_corners=False
                 )
 
-            spatial_mask = spatial_mask.expand_as(predictions)
-            valid_pixels = spatial_mask.sum().clamp(min=1)
-            loss = self.criterion(predictions * spatial_mask, data['gt'] * spatial_mask)
-            loss = loss * (float(predictions.numel()) / valid_pixels)
+            if getattr(self.criterion, 'supports_spatial_mask', False):
+                loss = self.criterion(predictions, data['gt'], spatial_mask=spatial_mask)
+            else:
+                spatial_mask = spatial_mask.expand_as(predictions)
+                valid_pixels = spatial_mask.sum().clamp(min=1)
+                loss = self.criterion(predictions * spatial_mask, data['gt'] * spatial_mask)
+                loss = loss * (float(predictions.numel()) / valid_pixels)
         else:
             loss = self.criterion(predictions, data['gt'])
 
@@ -823,11 +953,22 @@ class TrainerAlphaSR(TrainerBase):
         """验证流程（计算PSNR/SSIM/ERGAS/SAM指标）"""
         if self.rank == 0:
             self.model.eval()
-            all_metrics = {'psnr': [], 'ssim': [], 'ergas': [], 'sam': [], 'masked_psnr': []}
+            all_metrics = {
+                'psnr': [],
+                'ssim': [],
+                'ergas': [],
+                'sam': [],
+                'masked_psnr': [],
+                'cosine': [],
+                'angle_deg': [],
+                'masked_cosine': [],
+            }
             per_band_psnr_values = []
             per_sample_psnr_values = []
+            per_sample_cosine_values = []
             val_debug_max = int(self.configs.train.get('val_debug_max_samples', 8) or 0)
             compute_expensive_metrics = bool(self.configs.train.get('val_compute_expensive_metrics', False))
+            cosine_eps = float(self.configs.train.get('metric_cosine_eps', 1e-8))
             log_timing = bool(self.configs.train.get('val_timing_log', True))
             timing = {'data_wait': 0.0, 'to_device': 0.0, 'forward': 0.0, 'metrics': 0.0, 'visualize': 0.0}
             val_loader = self.dataloaders[phase]
@@ -902,6 +1043,24 @@ class TrainerAlphaSR(TrainerBase):
                 if 'masked_sample_psnr' in fast_metrics:
                     all_metrics['masked_psnr'].extend(float(v) for v in fast_metrics['masked_sample_psnr'])
 
+                embedding_metrics = self.compute_embedding_cosine_metrics(
+                    predictions,
+                    data['gt'],
+                    spatial_masks=spatial_masks,
+                    eps=cosine_eps,
+                )
+                batch_sample_cosine = embedding_metrics['sample_cosine']
+                batch_sample_angle = embedding_metrics['sample_angle_deg']
+                finite_cosine = [float(v) for v in batch_sample_cosine if np.isfinite(v)]
+                finite_angle = [float(v) for v in batch_sample_angle if np.isfinite(v)]
+                per_sample_cosine_values.extend(finite_cosine)
+                all_metrics['cosine'].extend(finite_cosine)
+                all_metrics['angle_deg'].extend(finite_angle)
+                if 'masked_sample_cosine' in embedding_metrics:
+                    all_metrics['masked_cosine'].extend(
+                        float(v) for v in embedding_metrics['masked_sample_cosine'] if np.isfinite(v)
+                    )
+
                 if compute_expensive_metrics:
                     gt_01 = gt_01_tensor.cpu().numpy()
                     pred_01 = pred_01_tensor.cpu().numpy()
@@ -931,6 +1090,7 @@ class TrainerAlphaSR(TrainerBase):
                         self.logger.info(
                             f"🔎 Val sample debug | iter={self.current_iters} idx={global_sample_idx} "
                             f"psnr={float(psnr_val):.4f} "
+                            f"cos={float(batch_sample_cosine[batch_idx]):.4f} "
                             f"gt_mean={float(gt_01_tensor[batch_idx].mean().item()):.4f} "
                             f"pred_mean={float(pred_01_tensor[batch_idx].mean().item()):.4f} "
                             f"path={path_info}"
@@ -964,6 +1124,11 @@ class TrainerAlphaSR(TrainerBase):
                 f" | Masked-PSNR: {avg_metrics['masked_psnr']:.4f}"
                 if 'masked_psnr' in avg_metrics else ""
             )
+            embedding_metrics_str = (
+                f" | Cosine: {avg_metrics['cosine']:.4f}"
+                + (f" | Angle: {avg_metrics['angle_deg']:.2f}°" if 'angle_deg' in avg_metrics else "")
+                + (f" | Masked-Cosine: {avg_metrics['masked_cosine']:.4f}" if 'masked_cosine' in avg_metrics else "")
+            )
             slow_metrics_str = (
                 f" | SSIM: {avg_metrics['ssim']:.4f} | "
                 f"ERGAS: {avg_metrics['ergas']:.4f} | SAM: {avg_metrics['sam']:.4f}"
@@ -973,6 +1138,7 @@ class TrainerAlphaSR(TrainerBase):
             self.logger.info(
                 f"📊 Validation Metrics | "
                 f"PSNR: {avg_metrics['psnr']:.4f}"
+                + embedding_metrics_str
                 + slow_metrics_str
                 + masked_psnr_str
             )
@@ -981,6 +1147,12 @@ class TrainerAlphaSR(TrainerBase):
                 self.logger.info(
                     f"🔎 Validation PSNR spread | min={sample_arr.min():.4f} "
                     f"median={np.median(sample_arr):.4f} max={sample_arr.max():.4f} n={sample_arr.size}"
+                )
+            if per_sample_cosine_values:
+                cosine_arr = np.asarray(per_sample_cosine_values, dtype=np.float32)
+                self.logger.info(
+                    f"🔎 Validation cosine spread | min={cosine_arr.min():.4f} "
+                    f"median={np.median(cosine_arr):.4f} max={cosine_arr.max():.4f} n={cosine_arr.size}"
                 )
             if per_band_psnr_values:
                 band_arr = np.asarray(per_band_psnr_values, dtype=np.float32)
@@ -1007,9 +1179,21 @@ class TrainerAlphaSR(TrainerBase):
             if 'ssim' in avg_metrics:
                 self.log_data['val_ssim']['iters'].append(self.current_iters)
                 self.log_data['val_ssim']['values'].append(avg_metrics['ssim'])
+            if 'cosine' in avg_metrics:
+                self.log_data['val_cosine']['iters'].append(self.current_iters)
+                self.log_data['val_cosine']['values'].append(avg_metrics['cosine'])
+            if 'angle_deg' in avg_metrics:
+                self.log_data['val_angle_deg']['iters'].append(self.current_iters)
+                self.log_data['val_angle_deg']['values'].append(avg_metrics['angle_deg'])
             
             self.model.train()
-            return avg_metrics['psnr']
+            primary_metric = str(self.configs.train.get('primary_metric', 'psnr')).lower()
+            if primary_metric not in avg_metrics:
+                self.logger.warning(
+                    f"⚠️ primary_metric={primary_metric} missing from validation metrics; falling back to PSNR."
+                )
+                primary_metric = 'psnr'
+            return avg_metrics[primary_metric]
 
     def visualize_validation_sample(self, data, predictions, sample_idx):
         """健壮的可视化函数：过滤非基础波段，适配T*C扁平化通道"""
@@ -1105,20 +1289,27 @@ class TrainerAlphaSR(TrainerBase):
             ax1.grid(True, linestyle=':', alpha=0.7)
             ax1.set_yscale('log')
 
-            # 绘制验证PSNR/SSIM
+            # 绘制验证 PSNR / SSIM / Cosine
             if self.log_data['val_psnr']['iters']:
                 ax2 = ax1.twinx()
-                ax2.set_ylabel('Validation PSNR (dB) / SSIM', color='tab:blue')
+                ax2.set_ylabel('Validation PSNR (dB) / SSIM / Cosine', color='tab:blue')
                 ax2.plot(
                     self.log_data['val_psnr']['iters'],
                     self.log_data['val_psnr']['values'],
                     color='tab:blue', marker='o', linestyle='-', markersize=5, label='PSNR (dB)'
                 )
-                ax2.plot(
-                    self.log_data['val_ssim']['iters'],
-                    self.log_data['val_ssim']['values'],
-                    color='tab:green', marker='x', linestyle='--', label='SSIM'
-                )
+                if self.log_data['val_ssim']['iters']:
+                    ax2.plot(
+                        self.log_data['val_ssim']['iters'],
+                        self.log_data['val_ssim']['values'],
+                        color='tab:green', marker='x', linestyle='--', label='SSIM'
+                    )
+                if self.log_data.get('val_cosine', {}).get('iters'):
+                    ax2.plot(
+                        self.log_data['val_cosine']['iters'],
+                        self.log_data['val_cosine']['values'],
+                        color='tab:purple', marker='s', linestyle='-', markersize=5, label='Cosine'
+                    )
                 ax2.tick_params(axis='y', labelcolor='tab:blue')
                 # 合并图例
                 lines1, labels1 = ax1.get_legend_handles_labels()

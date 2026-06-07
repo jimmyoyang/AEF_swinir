@@ -109,10 +109,13 @@ class TrainerAlphaSRMaskAblation(TrainerAlphaSR):
                     )
                 return
 
-            masked_predictions = predictions * mask_bchw
-            masked_gt = gt * mask_bchw
-            loss = self.criterion(masked_predictions, masked_gt)
-            loss = loss * (predictions.numel() / valid_pixels)
+            if getattr(self.criterion, 'supports_spatial_mask', False):
+                loss = self.criterion(predictions, gt, spatial_mask=mask_b1hw)
+            else:
+                masked_predictions = predictions * mask_bchw
+                masked_gt = gt * mask_bchw
+                loss = self.criterion(masked_predictions, masked_gt)
+                loss = loss * (predictions.numel() / valid_pixels)
         else:
             loss = self.criterion(predictions, gt)
 
@@ -154,9 +157,12 @@ class TrainerAlphaSRMaskTemporalLossAblation(TrainerAlphaSRMaskAblation):
         if valid_pixels <= 0:
             return predictions.new_tensor(0.0)
 
-        masked_predictions = predictions * mask_bchw
-        masked_gt = gt * mask_bchw
-        loss = self.criterion(masked_predictions, masked_gt) * (predictions.numel() / valid_pixels)
+        if getattr(self.criterion, 'supports_spatial_mask', False):
+            loss = self.criterion(predictions, gt, spatial_mask=mask_b1hw)
+        else:
+            masked_predictions = predictions * mask_bchw
+            masked_gt = gt * mask_bchw
+            loss = self.criterion(masked_predictions, masked_gt) * (predictions.numel() / valid_pixels)
         return loss
 
     def training_step(self, data):
