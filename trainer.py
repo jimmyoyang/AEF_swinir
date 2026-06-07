@@ -174,6 +174,9 @@ class TrainerBase:
         else:
             self.num_gpus = 1 if torch.cuda.is_available() else 0
             self.rank = 0
+        self.device = torch.device(
+            f"cuda:{self.local_rank}" if torch.cuda.is_available() else "cpu"
+        )
 
         # 设置随机种子（分布式下每个进程种子偏移）
         seed = self.configs.train.get('seed', 42)
@@ -353,8 +356,8 @@ class TrainerBase:
                     ('srcnn' not in model_name and 'in_chans' not in self.configs.model.params)):
                     sys.exit("CRITICAL: input channel detection failed and required parameter missing!")
 
-        # 实例化模型并移到GPU
-        self.model = util_common.instantiate_from_config(self.configs.model).cuda()
+        # 实例化模型并移到当前 device；GPU 环境保持 CUDA，CPU smoke/debug 也可运行。
+        self.model = util_common.instantiate_from_config(self.configs.model).to(self.device)
         # 多GPU时用DDP包装
         if self.num_gpus > 1:
             self.model = DDP(
@@ -372,13 +375,13 @@ class TrainerBase:
         )
 
     def prepare_data(self, data):
-        """将数据移到GPU（支持字典/张量类型）"""
+        """将数据移到当前 device（支持字典/张量类型）"""
         if isinstance(data, dict):
             return {
-                k: (v.cuda(non_blocking=True) if isinstance(v, torch.Tensor) else v)
+                k: (v.to(self.device, non_blocking=True) if isinstance(v, torch.Tensor) else v)
                 for k, v in data.items()
             }
-        return data.cuda(non_blocking=True)
+        return data.to(self.device, non_blocking=True)
 
     def _model_for_rank0_eval(self):
         """Rank-0-only validation should bypass DDP wrapper to avoid DDP forward collectives."""
@@ -440,7 +443,7 @@ class TrainerBase:
             # 兼容 PyTorch 2.6: 默认 weights_only=True 可能导致旧 checkpoint 反序列化失败。
             # 对可信本地实验权重，失败后自动回退到 weights_only=False。
             try:
-                ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.local_rank}")
+                ckpt = torch.load(ckpt_path, map_location=self.device)
             except Exception as e:
                 err = str(e)
                 if "Weights only load failed" in err:
@@ -449,10 +452,10 @@ class TrainerBase:
                             "⚠️ torch.load safe mode failed; retrying with weights_only=False for trusted local checkpoint."
                         )
                     try:
-                        ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.local_rank}", weights_only=False)
+                        ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
                     except TypeError:
                         # 兼容旧版 PyTorch（无 weights_only 参数）
-                        ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.local_rank}")
+                        ckpt = torch.load(ckpt_path, map_location=self.device)
                 else:
                     raise
             

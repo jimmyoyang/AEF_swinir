@@ -56,12 +56,12 @@ data:
       hr_zero_ratio_filter_threshold: 0.05
       hr_zero_ratio_manifest: "./patch_stats.log"
       cache_dirs:
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2018/processed_data_SR_10m_filer/cache/train"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2019/processed_data_SR_10m_filer/cache/train"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2021/processed_data_SR_10m_filer/cache/train"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer/cache/train"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer/cache/train"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer/cache/train"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2018/train"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2019/train"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2021/train"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2022/train"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2023/train"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2024/train"
       mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/train/mask"
       hard_mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/train/hard"
       hr_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/train/hr"
@@ -96,12 +96,12 @@ data:
       hr_zero_ratio_filter_threshold: 0.05
       hr_zero_ratio_manifest: "./patch_stats.log"
       cache_dirs:
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2018/processed_data_SR_10m_filer/cache/val"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2019/processed_data_SR_10m_filer/cache/val"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2021/processed_data_SR_10m_filer/cache/val"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer/cache/val"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer/cache/val"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer/cache/val"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2018/val"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2019/val"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2021/val"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2022/val"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2023/val"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2024/val"
       mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/val/mask"
       hard_mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/val/hard"
       hr_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/val/hr"
@@ -134,12 +134,12 @@ data:
       hr_zero_ratio_filter_threshold: 0.05
       hr_zero_ratio_manifest: "./patch_stats.log"
       cache_dirs:
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2018/processed_data_SR_10m_filer/cache/test"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2019/processed_data_SR_10m_filer/cache/test"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2021/processed_data_SR_10m_filer/cache/test"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2022/processed_data_SR_10m_filer/cache/test"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2023/processed_data_SR_10m_filer/cache/test"
-        - "/mnt/lm_data_afs/wangzining/charles/AEF_swinir/data/2024/processed_data_SR_10m_filer/cache/test"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2018/test"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2019/test"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2021/test"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2022/test"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2023/test"
+        - "./tmp/tile_cache/aef_time_aligned_cosine_large_dequant/2024/test"
       mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/test/mask"
       hard_mask_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/test/hard"
       hr_cache_root: "./tmp/mask_cache/aef_time_aligned_cosine_large_dequant/test/hr"
@@ -215,4 +215,5 @@ train:
   val_compute_expensive_metrics: false
   val_timing_log: true
   train_timing_log_freq: 50
+  debug_batch_log_freq: 50
   rgb_chn: [2, 1, 0]
