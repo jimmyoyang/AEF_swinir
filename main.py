@@ -18,12 +18,69 @@ from datapipe.datasets import create_dataset  # 新架构数据集创建工具
 from inference import Predictor               # 新架构推理预测器类
 from inference_srcnn import PredictorSRCNN, run_inference_srcnn  # SRCNN专用推理
 
+SWINIR_MODEL_SIZE_PRESETS = {
+    'default': {
+        'embed_dim': 180,
+        'depths': [6, 6, 6, 6],
+        'num_heads': [6, 6, 6, 6],
+        'head_dim': 6,
+    },
+    'base': {
+        'embed_dim': 180,
+        'depths': [6, 6, 6, 6],
+        'num_heads': [6, 6, 6, 6],
+        'head_dim': 6,
+    },
+    'large': {
+        'embed_dim': 240,
+        'depths': [6, 6, 6, 6, 6, 6, 6, 6, 6],
+        'num_heads': [8, 8, 8, 8, 8, 8, 8, 8, 8],
+        'head_dim': 8,
+    },
+}
+
 def detect_model_type(configs):
     """检测模型类型（SRCNN或其他）"""
     model_target = configs.model.target.lower()
     if 'srcnn' in model_target:
         return 'srcnn'
     return 'default'
+
+def apply_model_size_override(configs, model_size):
+    """Apply an optional SwinIR model-size preset without changing config-only runs."""
+    if not model_size:
+        return configs
+
+    normalized_size = model_size.strip().lower()
+    if normalized_size in ('config', 'none'):
+        return configs
+
+    if normalized_size not in SWINIR_MODEL_SIZE_PRESETS:
+        valid_sizes = ', '.join(sorted(SWINIR_MODEL_SIZE_PRESETS.keys()))
+        raise ValueError(f"Unknown --model_size '{model_size}'. Valid options: {valid_sizes}, config, none")
+
+    model_target = configs.model.target.lower()
+    if 'swinir' not in model_target:
+        raise ValueError(f"--model_size is only supported for SwinIR targets, got: {configs.model.target}")
+
+    preset = SWINIR_MODEL_SIZE_PRESETS[normalized_size]
+    params = configs.model.params
+    params.embed_dim = preset['embed_dim']
+    params.depths = list(preset['depths'])
+    params.num_heads = list(preset['num_heads'])
+
+    if 'cross_num_heads' in params:
+        params.cross_num_heads = preset['head_dim']
+    if 'pos_emb_dim' in params and int(params.get('pos_emb_dim', 0) or 0) > 0:
+        params.pos_emb_dim = preset['embed_dim']
+    if 'temporal_attention_params' in params and params.temporal_attention_params is not None:
+        params.temporal_attention_params.num_heads = preset['head_dim']
+
+    print(
+        f"[Main] Applied SwinIR model_size={normalized_size}: "
+        f"embed_dim={params.embed_dim}, layers={len(params.depths)}, heads={list(params.num_heads)}"
+    )
+    return configs
 
 def main():
     # --- 1. 解析命令行参数 (保持所有原有参数不变) ---
@@ -33,6 +90,7 @@ def main():
     parser.add_argument('--save_dir', type=str, default=None, help='Override the save directory specified in the config file.')
     parser.add_argument('--resume', action='store_true', help='Flag to resume training from the latest checkpoint in the save_dir.')
     parser.add_argument('--ckpt_path', type=str, default=None, help='Specify a direct path to a checkpoint for resuming or testing.')
+    parser.add_argument('--model_size', type=str, default=None, help="Optional SwinIR size preset: default/base/large. Omit to use the YAML as-is.")
     
     # 推理专用参数（保留不变）
     parser.add_argument('--input_dir', type=str, default=None, help="[Test Mode] Path to the input data directory for inference.")
@@ -42,6 +100,7 @@ def main():
 
     # --- 2. 加载和合并配置 (保持原有逻辑) ---
     configs = OmegaConf.load(args.cfg_path)
+    configs = apply_model_size_override(configs, args.model_size)
     if args.save_dir:
         configs.train.save_dir = args.save_dir
 

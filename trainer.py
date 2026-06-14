@@ -597,6 +597,33 @@ class TrainerBase:
         return img_01.cpu().numpy()
 
     @staticmethod
+    def _safe_percentile_bounds(values, low_pct, high_pct):
+        values = np.asarray(values, dtype=np.float32)
+        values = values[np.isfinite(values)]
+        if values.size == 0:
+            return 0.0, 1.0
+
+        low = float(np.percentile(values, low_pct))
+        high = float(np.percentile(values, high_pct))
+        if not np.isfinite(low) or not np.isfinite(high):
+            return 0.0, 1.0
+        if high <= low:
+            pad = max(abs(low) * 1e-6, 1e-6)
+            return low - pad, high + pad
+        return low, high
+
+    @classmethod
+    def _percentile_stretch_hwc(cls, image_hwc, low_pct=2.0, high_pct=98.0, reference_hwc=None):
+        image_hwc = np.asarray(image_hwc, dtype=np.float32)
+        reference_hwc = image_hwc if reference_hwc is None else np.asarray(reference_hwc, dtype=np.float32)
+        stretched = np.empty_like(image_hwc, dtype=np.float32)
+
+        for ch in range(image_hwc.shape[-1]):
+            low, high = cls._safe_percentile_bounds(reference_hwc[..., ch], low_pct, high_pct)
+            stretched[..., ch] = np.clip((image_hwc[..., ch] - low) / (high - low), 0.0, 1.0)
+        return stretched
+
+    @staticmethod
     def norm_for_metric_tensor(img_tensor):
         """将[-1,1]裁剪并映射到[0,1]，保留在当前设备上用于快速指标。"""
         return (img_tensor.clamp(-1, 1) + 1.0) * 0.5
@@ -1230,15 +1257,44 @@ class TrainerAlphaSR(TrainerBase):
 
             # 6. RGB通道配置（默认[0,1,2]）
             rgb_chn = [int(x) for x in self.configs.train.get('rgb_chn', [0, 1, 2])]
-            lr_rgb = [min(max(ch, 0), lr_vis.shape[0] - 1) for ch in rgb_chn]
+            lr_rgb_chn = [int(x) for x in self.configs.train.get('lr_rgb_chn', [2, 1, 0])]
+            lr_rgb = [min(max(ch, 0), lr_vis.shape[0] - 1) for ch in lr_rgb_chn]
             pred_rgb = [min(max(ch, 0), pred_vis.shape[0] - 1) for ch in rgb_chn]
             gt_rgb = [min(max(ch, 0), gt_vis.shape[0] - 1) for ch in rgb_chn]
 
+            lr_image = lr_vis.transpose(1, 2, 0)[:, :, lr_rgb]
+            pred_image = pred_vis.transpose(1, 2, 0)[:, :, pred_rgb]
+            gt_image = gt_vis.transpose(1, 2, 0)[:, :, gt_rgb]
+
+            stretch_mode = str(self.configs.train.get('visualization_stretch', 'none')).lower()
+            err_vmin = err_vmax = None
+            if stretch_mode in ('percentile', 'joint_percentile'):
+                vis_low = float(self.configs.train.get('vis_percentile_low', 2.0))
+                vis_high = float(self.configs.train.get('vis_percentile_high', 98.0))
+                err_low = float(self.configs.train.get('error_vis_percentile_low', 0.0))
+                err_high = float(self.configs.train.get('error_vis_percentile_high', 95.0))
+
+                lr_image = self._percentile_stretch_hwc(lr_image, vis_low, vis_high)
+                joint_sr_gt_ref = np.concatenate([pred_image, gt_image], axis=0)
+                pred_image = self._percentile_stretch_hwc(
+                    pred_image,
+                    vis_low,
+                    vis_high,
+                    reference_hwc=joint_sr_gt_ref,
+                )
+                gt_image = self._percentile_stretch_hwc(
+                    gt_image,
+                    vis_low,
+                    vis_high,
+                    reference_hwc=joint_sr_gt_ref,
+                )
+                err_vmin, err_vmax = self._safe_percentile_bounds(error_map, err_low, err_high)
+
             # 7. 绘制子图
-            axes[0,0].imshow(lr_vis.transpose(1,2,0)[:, :, lr_rgb]); axes[0,0].set_title('Input LR (First Timestep)')
-            axes[0,1].imshow(pred_vis.transpose(1,2,0)[:, :, pred_rgb]); axes[0,1].set_title('Prediction (SR)')
-            axes[1,0].imshow(gt_vis.transpose(1,2,0)[:, :, gt_rgb]); axes[1,0].set_title('Ground Truth (HR)')
-            im = axes[1,1].imshow(error_map, cmap='hot'); axes[1,1].set_title('Absolute Error Map')
+            axes[0,0].imshow(lr_image); axes[0,0].set_title('Input LR (First Timestep)')
+            axes[0,1].imshow(pred_image); axes[0,1].set_title('Prediction (SR)')
+            axes[1,0].imshow(gt_image); axes[1,0].set_title('Ground Truth (HR)')
+            im = axes[1,1].imshow(error_map, cmap='hot', vmin=err_vmin, vmax=err_vmax); axes[1,1].set_title('Absolute Error Map')
             fig.colorbar(im, ax=axes[1,1])
 
             # 8. 隐藏坐标轴
