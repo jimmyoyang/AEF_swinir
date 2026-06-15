@@ -75,6 +75,10 @@ class AEFEmbeddingLoss(torch.nn.Module):
         l1_weight=1.0,
         cosine_weight=1.0,
         mse_weight=0.0,
+        gradient_weight=0.0,
+        laplacian_weight=0.0,
+        visual_l1_weight=0.0,
+        visual_channel_indices=None,
         normalize_vectors=True,
         normalize_regression_vectors=True,
         eps=1e-8,
@@ -83,6 +87,14 @@ class AEFEmbeddingLoss(torch.nn.Module):
         self.l1_weight = float(l1_weight)
         self.cosine_weight = float(cosine_weight)
         self.mse_weight = float(mse_weight)
+        self.gradient_weight = float(gradient_weight)
+        self.laplacian_weight = float(laplacian_weight)
+        self.visual_l1_weight = float(visual_l1_weight)
+        self.visual_channel_indices = (
+            [int(ch) for ch in visual_channel_indices]
+            if visual_channel_indices is not None
+            else []
+        )
         self.normalize_vectors = bool(normalize_vectors)
         self.normalize_regression_vectors = bool(normalize_regression_vectors)
         self.eps = float(eps)
@@ -90,6 +102,9 @@ class AEFEmbeddingLoss(torch.nn.Module):
         print(
             "🔥 Initialized AEFEmbeddingLoss | "
             f"L1={self.l1_weight} Cosine={self.cosine_weight} MSE={self.mse_weight} "
+            f"Gradient={self.gradient_weight} Laplacian={self.laplacian_weight} "
+            f"VisualL1={self.visual_l1_weight} "
+            f"VisualChannels={self.visual_channel_indices} "
             f"normalize_vectors={self.normalize_vectors} "
             f"normalize_regression_vectors={self.normalize_regression_vectors}"
         )
@@ -107,6 +122,19 @@ class AEFEmbeddingLoss(torch.nn.Module):
                 mask = F.interpolate(mask, size=target.shape[-2:], mode='bilinear', align_corners=False)
             weights = weights * mask[:, 0]
         return weights
+
+    @staticmethod
+    def _spatial_gradients(x):
+        grad_x = x[..., :, 1:] - x[..., :, :-1]
+        grad_y = x[..., 1:, :] - x[..., :-1, :]
+        return grad_x, grad_y
+
+    @staticmethod
+    def _laplacian(x):
+        channels = x.shape[1]
+        kernel = x.new_tensor([[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]])
+        kernel = kernel.view(1, 1, 3, 3).expand(channels, 1, 3, 3)
+        return F.conv2d(x, kernel, padding=1, groups=channels)
 
     def forward(self, prediction, target, spatial_mask=None):
         pred_for_cos = self._normalize(prediction) if self.normalize_vectors else prediction.float()
@@ -135,6 +163,37 @@ class AEFEmbeddingLoss(torch.nn.Module):
             mse = (pred_for_reg - target_for_reg).pow(2) * pixel_weights.unsqueeze(1)
             mse = mse.sum() / (pixel_denom * prediction.shape[1]).clamp_min(1.0)
             loss = loss + self.mse_weight * mse
+
+        if self.visual_l1_weight > 0 and self.visual_channel_indices:
+            valid_channels = [
+                ch for ch in self.visual_channel_indices
+                if 0 <= ch < prediction.shape[1]
+            ]
+            if valid_channels:
+                channels = torch.as_tensor(valid_channels, dtype=torch.long, device=prediction.device)
+                pred_visual = pred_for_reg.index_select(1, channels)
+                target_visual = target_for_reg.index_select(1, channels)
+                visual_l1 = (pred_visual - target_visual).abs() * pixel_weights.unsqueeze(1)
+                visual_l1 = visual_l1.sum() / (pixel_denom * len(valid_channels)).clamp_min(1.0)
+                loss = loss + self.visual_l1_weight * visual_l1
+
+        if self.gradient_weight > 0:
+            pred_dx, pred_dy = self._spatial_gradients(pred_for_reg)
+            target_dx, target_dy = self._spatial_gradients(target_for_reg)
+            weight_x = torch.minimum(pixel_weights[..., :, 1:], pixel_weights[..., :, :-1])
+            weight_y = torch.minimum(pixel_weights[..., 1:, :], pixel_weights[..., :-1, :])
+            denom_x = (weight_x.sum() * prediction.shape[1]).clamp_min(1.0)
+            denom_y = (weight_y.sum() * prediction.shape[1]).clamp_min(1.0)
+            grad_loss_x = ((pred_dx - target_dx).abs() * weight_x.unsqueeze(1)).sum() / denom_x
+            grad_loss_y = ((pred_dy - target_dy).abs() * weight_y.unsqueeze(1)).sum() / denom_y
+            loss = loss + self.gradient_weight * (grad_loss_x + grad_loss_y)
+
+        if self.laplacian_weight > 0:
+            pred_lap = self._laplacian(pred_for_reg)
+            target_lap = self._laplacian(target_for_reg)
+            lap_loss = (pred_lap - target_lap).abs() * pixel_weights.unsqueeze(1)
+            lap_loss = lap_loss.sum() / (pixel_denom * prediction.shape[1]).clamp_min(1.0)
+            loss = loss + self.laplacian_weight * lap_loss
 
         return loss
 
@@ -491,6 +550,48 @@ class TrainerBase:
             
             if self.rank == 0:
                 self.logger.info(f"✅ Resumed from iteration {self.iters_start} | Best metric: {self.best_metric:.4f}")
+            return
+
+        init_ckpt_path = self.configs.train.get('init_ckpt_path', None)
+        if init_ckpt_path:
+            init_ckpt_path = str(init_ckpt_path)
+            assert Path(init_ckpt_path).exists(), f"Initial checkpoint not found: {init_ckpt_path}"
+            if self.rank == 0:
+                self.logger.info(f"🔄 Initializing model weights from checkpoint: {init_ckpt_path}")
+
+            try:
+                ckpt = torch.load(init_ckpt_path, map_location=self.device)
+            except Exception as e:
+                err = str(e)
+                if "Weights only load failed" in err:
+                    if self.rank == 0:
+                        self.logger.warning(
+                            "⚠️ torch.load safe mode failed; retrying with weights_only=False for trusted local checkpoint."
+                        )
+                    try:
+                        ckpt = torch.load(init_ckpt_path, map_location=self.device, weights_only=False)
+                    except TypeError:
+                        ckpt = torch.load(init_ckpt_path, map_location=self.device)
+                else:
+                    raise
+
+            model_to_load = self.model.module if isinstance(self.model, DDP) else self.model
+            try:
+                load_info = util_net.reload_model(model_to_load, ckpt['state_dict'], strict=True)
+            except AssertionError as e:
+                if self.rank == 0:
+                    self.logger.warning(f"⚠️ Strict initial weight load failed: {e}")
+                    self.logger.warning("⚠️ Falling back to non-strict load (matched keys only).")
+                load_info = util_net.reload_model(model_to_load, ckpt['state_dict'], strict=False)
+
+            if self.rank == 0:
+                if isinstance(load_info, dict):
+                    self.logger.info(
+                        f"🔎 Initial weight load summary | loaded={load_info.get('loaded', 0)} "
+                        f"missing={len(load_info.get('missing', []))} "
+                        f"shape_mismatch={len(load_info.get('shape_mismatch', []))}"
+                    )
+                self.logger.info("✅ Initial checkpoint loaded; starting fresh fine-tuning schedule.")
 
     def train(self):
         """主训练循环"""
@@ -622,6 +723,43 @@ class TrainerBase:
             low, high = cls._safe_percentile_bounds(reference_hwc[..., ch], low_pct, high_pct)
             stretched[..., ch] = np.clip((image_hwc[..., ch] - low) / (high - low), 0.0, 1.0)
         return stretched
+
+    @staticmethod
+    def _fixed_embedding_range_hwc(image_hwc, component_range=0.2):
+        image_hwc = np.asarray(image_hwc, dtype=np.float32)
+        component_range = max(float(component_range), 1e-6)
+        signed = image_hwc * 2.0 - 1.0
+        return np.clip((signed + component_range) / (2.0 * component_range), 0.0, 1.0)
+
+    @staticmethod
+    def _joint_pca_projection_hwc(pred_chw, gt_chw):
+        """Project two C-channel embedding images to a shared 3-channel PCA space."""
+        pred_chw = np.asarray(pred_chw, dtype=np.float32)
+        gt_chw = np.asarray(gt_chw, dtype=np.float32)
+        channels, height, width = pred_chw.shape
+        if gt_chw.shape != pred_chw.shape or channels < 3:
+            raise ValueError(
+                f"PCA visualization expects matching C,H,W tensors with C>=3, "
+                f"got pred={pred_chw.shape}, gt={gt_chw.shape}"
+            )
+
+        pred_flat = pred_chw.reshape(channels, -1).T
+        gt_flat = gt_chw.reshape(channels, -1).T
+        joint = np.concatenate([pred_flat, gt_flat], axis=0)
+        finite = np.isfinite(joint).all(axis=1)
+        if not np.any(finite):
+            raise ValueError("PCA visualization received no finite embedding vectors")
+
+        center = joint[finite].mean(axis=0, keepdims=True)
+        centered = joint[finite] - center
+        cov = (centered.T @ centered) / max(centered.shape[0] - 1, 1)
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        components = eigvecs[:, np.argsort(eigvals)[-3:]]
+
+        projected = (joint - center) @ components
+        pred_projected = projected[: pred_flat.shape[0]].reshape(height, width, 3)
+        gt_projected = projected[pred_flat.shape[0]:].reshape(height, width, 3)
+        return pred_projected.astype(np.float32), gt_projected.astype(np.float32)
 
     @staticmethod
     def norm_for_metric_tensor(img_tensor):
@@ -992,6 +1130,8 @@ class TrainerAlphaSR(TrainerBase):
                 'cosine': [],
                 'angle_deg': [],
                 'masked_cosine': [],
+                'visual_psnr': [],
+                'masked_visual_psnr': [],
             }
             per_band_psnr_values = []
             per_sample_psnr_values = []
@@ -1072,6 +1212,33 @@ class TrainerAlphaSR(TrainerBase):
                 all_metrics['psnr'].extend(float(v) for v in batch_sample_psnr)
                 if 'masked_sample_psnr' in fast_metrics:
                     all_metrics['masked_psnr'].extend(float(v) for v in fast_metrics['masked_sample_psnr'])
+
+                rgb_chn = [int(x) for x in self.configs.train.get('rgb_chn', [])]
+                rgb_chn = [ch for ch in rgb_chn if 0 <= ch < gt_01_tensor.shape[1]]
+                if rgb_chn:
+                    rgb_idx = torch.as_tensor(rgb_chn, dtype=torch.long, device=gt_01_tensor.device)
+                    pred_rgb_metric = pred_01_tensor.index_select(1, rgb_idx)
+                    gt_rgb_metric = gt_01_tensor.index_select(1, rgb_idx)
+                    rgb_mse = (pred_rgb_metric - gt_rgb_metric).pow(2).flatten(1).mean(dim=1).clamp_min(1e-12)
+                    rgb_psnr = 10.0 * torch.log10(1.0 / rgb_mse)
+                    all_metrics['visual_psnr'].extend(float(v) for v in rgb_psnr.detach().cpu())
+                    if spatial_masks is not None:
+                        rgb_mask = spatial_masks.float()
+                        if rgb_mask.shape[-2:] != pred_rgb_metric.shape[-2:]:
+                            rgb_mask = F.interpolate(
+                                rgb_mask,
+                                size=pred_rgb_metric.shape[-2:],
+                                mode='bilinear',
+                                align_corners=False,
+                            )
+                        rgb_mask = rgb_mask.clamp(0.0, 1.0)
+                        rgb_weight = rgb_mask.expand_as(pred_rgb_metric)
+                        denom = rgb_weight.flatten(1).sum(dim=1).clamp_min(1.0)
+                        masked_rgb_mse = (
+                            (pred_rgb_metric - gt_rgb_metric).pow(2) * rgb_weight
+                        ).flatten(1).sum(dim=1) / denom
+                        masked_rgb_psnr = 10.0 * torch.log10(1.0 / masked_rgb_mse.clamp_min(1e-12))
+                        all_metrics['masked_visual_psnr'].extend(float(v) for v in masked_rgb_psnr.detach().cpu())
 
                 embedding_metrics = self.compute_embedding_cosine_metrics(
                     predictions,
@@ -1154,6 +1321,11 @@ class TrainerAlphaSR(TrainerBase):
                 f" | Masked-PSNR: {avg_metrics['masked_psnr']:.4f}"
                 if 'masked_psnr' in avg_metrics else ""
             )
+            visual_psnr_str = (
+                f" | Visual-PSNR: {avg_metrics['visual_psnr']:.4f}"
+                + (f" | Masked-Visual-PSNR: {avg_metrics['masked_visual_psnr']:.4f}" if 'masked_visual_psnr' in avg_metrics else "")
+                if 'visual_psnr' in avg_metrics else ""
+            )
             embedding_metrics_str = (
                 f" | Cosine: {avg_metrics['cosine']:.4f}"
                 + (f" | Angle: {avg_metrics['angle_deg']:.2f}°" if 'angle_deg' in avg_metrics else "")
@@ -1168,6 +1340,7 @@ class TrainerAlphaSR(TrainerBase):
             self.logger.info(
                 f"📊 Validation Metrics | "
                 f"PSNR: {avg_metrics['psnr']:.4f}"
+                + visual_psnr_str
                 + embedding_metrics_str
                 + slow_metrics_str
                 + masked_psnr_str
@@ -1263,8 +1436,12 @@ class TrainerAlphaSR(TrainerBase):
             gt_rgb = [min(max(ch, 0), gt_vis.shape[0] - 1) for ch in rgb_chn]
 
             lr_image = lr_vis.transpose(1, 2, 0)[:, :, lr_rgb]
-            pred_image = pred_vis.transpose(1, 2, 0)[:, :, pred_rgb]
-            gt_image = gt_vis.transpose(1, 2, 0)[:, :, gt_rgb]
+            projection_mode = str(self.configs.train.get('visualization_projection', 'channels')).lower()
+            if projection_mode in ('embedding_pca', 'pca'):
+                pred_image, gt_image = self._joint_pca_projection_hwc(pred_vis, gt_vis)
+            else:
+                pred_image = pred_vis.transpose(1, 2, 0)[:, :, pred_rgb]
+                gt_image = gt_vis.transpose(1, 2, 0)[:, :, gt_rgb]
 
             stretch_mode = str(self.configs.train.get('visualization_stretch', 'none')).lower()
             err_vmin = err_vmax = None
@@ -1288,6 +1465,14 @@ class TrainerAlphaSR(TrainerBase):
                     vis_high,
                     reference_hwc=joint_sr_gt_ref,
                 )
+                err_vmin, err_vmax = self._safe_percentile_bounds(error_map, err_low, err_high)
+            elif stretch_mode in ('fixed_range', 'fixed', 'embedding_fixed'):
+                fixed_range = float(self.configs.train.get('visualization_fixed_range', 0.2))
+                err_low = float(self.configs.train.get('error_vis_percentile_low', 0.0))
+                err_high = float(self.configs.train.get('error_vis_percentile_high', 95.0))
+                lr_image = np.clip(lr_image, 0.0, 1.0)
+                pred_image = self._fixed_embedding_range_hwc(pred_image, fixed_range)
+                gt_image = self._fixed_embedding_range_hwc(gt_image, fixed_range)
                 err_vmin, err_vmax = self._safe_percentile_bounds(error_map, err_low, err_high)
 
             # 7. 绘制子图

@@ -14,6 +14,14 @@ fi
 
 export CUDA_VISIBLE_DEVICES="${GPU_ID}"
 
+if [[ ! -f "${CFG_PATH}" ]]; then
+  ALT_CFG_PATH="${CFG_PATH//time-aligned/time_aligned}"
+  if [[ "${ALT_CFG_PATH}" != "${CFG_PATH}" && -f "${ALT_CFG_PATH}" ]]; then
+    echo "[train.sh] CFG_PATH=${CFG_PATH} not found; using ${ALT_CFG_PATH}"
+    CFG_PATH="${ALT_CFG_PATH}"
+  fi
+fi
+
 echo "[train.sh] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 if [[ -n "${MODEL_SIZE}" ]]; then
   echo "[train.sh] MODEL_SIZE=${MODEL_SIZE}"

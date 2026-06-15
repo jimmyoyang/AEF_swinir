@@ -33,6 +33,45 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
+
+class ResidualOutputRefinement(nn.Module):
+    def __init__(self, channels, hidden_channels=128, num_blocks=2):
+        super().__init__()
+        num_blocks = max(int(num_blocks), 1)
+        layers = []
+        in_channels = channels
+        hidden_channels = int(hidden_channels)
+        for _ in range(num_blocks):
+            layers.extend([
+                nn.Conv2d(in_channels, hidden_channels, 3, 1, 1),
+                nn.GELU(),
+                nn.Conv2d(hidden_channels, channels, 3, 1, 1),
+            ])
+            in_channels = channels
+        self.net = nn.Sequential(*layers)
+        self.zero_init_last()
+
+    def zero_init_last(self):
+        for module in reversed(self.net):
+            if isinstance(module, nn.Conv2d):
+                nn.init.zeros_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+                break
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class OutputChannelAffine(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.scale = nn.Parameter(torch.ones(1, channels, 1, 1))
+        self.bias = nn.Parameter(torch.zeros(1, channels, 1, 1))
+
+    def forward(self, x):
+        return x * self.scale + self.bias
+
 def window_partition(x, window_size):
     B, H, W, C = x.shape
     x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
@@ -529,6 +568,116 @@ def temporal_fusion_mean(fused_feat, B, T, D, H, W, **kwargs):
     
     return result
 
+
+def temporal_fusion_mask_weighted_mean(fused_feat, B, T, D, H, W, **kwargs):
+    """
+    Spatially weighted temporal aggregation.
+
+    Unlike temporal_fusion_mean, this uses mask_prob (B,T,1,H,W) as a per-pixel
+    availability weight, so cloudy/invalid pixels do not contribute equally to
+    the fused feature at that location.
+    """
+    if fused_feat.dim() != 4:
+        raise ValueError(f"fused_feat should be 4D (B*T, D, H, W), but got shape {fused_feat.shape}")
+
+    fused_feat_reshaped = fused_feat.view(B, T, D, H, W)
+    mask_prob = kwargs.get('mask_prob', None)
+    mask = kwargs.get('mask', None)
+
+    if mask_prob is None:
+        return temporal_fusion_mean(fused_feat, B, T, D, H, W, **kwargs)
+
+    if mask_prob.dim() == 4 and mask_prob.shape[0] == B * T:
+        mask_prob = mask_prob.view(B, T, 1, H, W)
+    if mask_prob.dim() == 4 and mask_prob.shape[0] == B and mask_prob.shape[1] == T:
+        mask_prob = mask_prob.unsqueeze(2)
+    if mask_prob.dim() != 5:
+        raise ValueError(f"mask_prob should be 5D (B,T,1,H,W), got {mask_prob.shape}")
+    if mask_prob.shape[0] != B or mask_prob.shape[1] != T:
+        raise ValueError(f"mask_prob batch/time mismatch: got {mask_prob.shape}, expected B={B}, T={T}")
+
+    weights = mask_prob.float().clamp(0.0, 1.0)
+    if weights.shape[-2:] != (H, W):
+        weights = F.interpolate(
+            weights.view(B * T, 1, weights.shape[-2], weights.shape[-1]),
+            size=(H, W),
+            mode='bilinear',
+            align_corners=False,
+        ).view(B, T, 1, H, W)
+
+    if mask is not None:
+        if mask.dim() == 1:
+            mask = mask.unsqueeze(0)
+        if mask.dim() != 2 or mask.shape[0] != B or mask.shape[1] != T:
+            raise ValueError(f"mask should be (B,T), got {mask.shape}, expected B={B}, T={T}")
+        weights = weights * mask.float().view(B, T, 1, 1, 1).clamp(0.0, 1.0)
+
+    denom = weights.sum(dim=1).clamp_min(1e-6)
+    result = (fused_feat_reshaped * weights).sum(dim=1) / denom
+    return result
+
+
+class TemporalMaskAttention(nn.Module):
+    """Learn per-pixel temporal weights, initialized as mask-weighted averaging."""
+
+    def __init__(self, embed_dim, hidden_dim=None):
+        super().__init__()
+        hidden_dim = int(hidden_dim or max(32, embed_dim // 4))
+        self.score = nn.Sequential(
+            nn.Conv2d(embed_dim, hidden_dim, 1, 1, 0),
+            nn.GELU(),
+            nn.Conv2d(hidden_dim, 1, 1, 1, 0),
+        )
+        nn.init.zeros_(self.score[-1].weight)
+        nn.init.zeros_(self.score[-1].bias)
+
+    def forward(self, fused_feat_reshaped, mask_prob=None, mask=None):
+        B, T, D, H, W = fused_feat_reshaped.shape
+        logits = self.score(fused_feat_reshaped.reshape(B * T, D, H, W)).view(B, T, 1, H, W)
+
+        prior = torch.ones((B, T, 1, H, W), device=logits.device, dtype=logits.dtype)
+        if mask_prob is not None:
+            if mask_prob.dim() == 4 and mask_prob.shape[0] == B * T:
+                mask_prob = mask_prob.view(B, T, 1, mask_prob.shape[-2], mask_prob.shape[-1])
+            if mask_prob.dim() == 4 and mask_prob.shape[0] == B and mask_prob.shape[1] == T:
+                mask_prob = mask_prob.unsqueeze(2)
+            if mask_prob.dim() != 5:
+                raise ValueError(f"mask_prob should be 5D (B,T,1,H,W), got {mask_prob.shape}")
+            prior = mask_prob.to(device=logits.device, dtype=logits.dtype).clamp(0.0, 1.0)
+            if prior.shape[-2:] != (H, W):
+                prior = F.interpolate(
+                    prior.view(B * T, 1, prior.shape[-2], prior.shape[-1]),
+                    size=(H, W),
+                    mode='bilinear',
+                    align_corners=False,
+                ).view(B, T, 1, H, W)
+
+        if mask is not None:
+            if mask.dim() == 1:
+                mask = mask.unsqueeze(0)
+            if mask.dim() != 2 or mask.shape[0] != B or mask.shape[1] != T:
+                raise ValueError(f"mask should be (B,T), got {mask.shape}, expected B={B}, T={T}")
+            prior = prior * mask.to(device=logits.device, dtype=logits.dtype).view(B, T, 1, 1, 1).clamp(0.0, 1.0)
+
+        logits = logits + torch.log(prior.clamp_min(1e-6))
+        weights = torch.softmax(logits, dim=1)
+        return (fused_feat_reshaped * weights).sum(dim=1)
+
+
+def temporal_fusion_mask_attention(fused_feat, B, T, D, H, W, **kwargs):
+    if fused_feat.dim() != 4:
+        raise ValueError(f"fused_feat should be 4D (B*T, D, H, W), but got shape {fused_feat.shape}")
+    attn_module = kwargs.get('attn_module')
+    if attn_module is None:
+        return temporal_fusion_mask_weighted_mean(fused_feat, B, T, D, H, W, **kwargs)
+    fused_feat_reshaped = fused_feat.view(B, T, D, H, W)
+    return attn_module(
+        fused_feat_reshaped,
+        mask_prob=kwargs.get('mask_prob', None),
+        mask=kwargs.get('mask', None),
+    )
+
+
 def temporal_fusion_attention(fused_feat, B, T, D, H, W, **kwargs):
     """
     【预留空间】步骤二：先进策略。使用时序注意力进行聚合。
@@ -551,6 +700,8 @@ def temporal_fusion_attention(fused_feat, B, T, D, H, W, **kwargs):
 # 【新增】创建一个函数注册表，便于动态调用
 TEMPORAL_FUSION_REGISTRY = {
     'mean': temporal_fusion_mean,
+    'mask_weighted_mean': temporal_fusion_mask_weighted_mean,
+    'mask_attention': temporal_fusion_mask_attention,
     'attention': temporal_fusion_attention,
 }
 
@@ -583,6 +734,10 @@ class SwinIR(nn.Module):
                  spectral_postprocessor_params=None,
                  output_l2_normalize=False,
                  output_normalize_eps=1e-8,
+                 use_output_refinement=False,
+                 output_refinement_channels=128,
+                 output_refinement_blocks=2,
+                 use_output_affine=False,
                  **kwargs):
 
         super(SwinIR, self).__init__()
@@ -603,6 +758,8 @@ class SwinIR(nn.Module):
         self.use_spectral_postprocessor = use_spectral_postprocessor
         self.output_l2_normalize = bool(output_l2_normalize)
         self.output_normalize_eps = float(output_normalize_eps)
+        self.use_output_refinement = bool(use_output_refinement)
+        self.use_output_affine = bool(use_output_affine)
 
         if self.use_pos_emb:
             if self.use_learnable_pos_emb:
@@ -624,7 +781,13 @@ class SwinIR(nn.Module):
 
         # --- 3. 【预留空间】为 'attention' 模式实例化模块 ---
         self.temporal_attn_module = None
-        if self.temporal_fusion_mode == 'attention':
+        if self.temporal_fusion_mode == 'mask_attention':
+            attn_params = temporal_attention_params or {}
+            self.temporal_attn_module = TemporalMaskAttention(
+                embed_dim=embed_dim,
+                hidden_dim=attn_params.get('hidden_dim', None),
+            )
+        elif self.temporal_fusion_mode == 'attention':
             # TODO: 在这里根据 temporal_attention_params 实例化您的注意力模块
             # self.temporal_attn_module = YourAttentionModuleClass(**temporal_attention_params)
             print("【信息】已为 'attention' 模式初始化注意力模块（此为占位符，待实现）。")
@@ -660,6 +823,14 @@ class SwinIR(nn.Module):
             self.upsample = nn.Identity()
         # --- 6. 最终图像重建 ---
         self.conv_last = nn.Conv2d(embed_dim, out_channels, 3, 1, 1)
+        self.output_refinement = None
+        if self.use_output_refinement:
+            self.output_refinement = ResidualOutputRefinement(
+                channels=out_channels,
+                hidden_channels=output_refinement_channels,
+                num_blocks=output_refinement_blocks,
+            )
+        self.output_affine = OutputChannelAffine(out_channels) if self.use_output_affine else None
 
         # --- 6.5 可选光谱后处理模块 ---
         self.spectral_postprocessor = None
@@ -673,6 +844,8 @@ class SwinIR(nn.Module):
             )
 
         self.apply(self._init_weights)
+        if self.output_refinement is not None:
+            self.output_refinement.zero_init_last()
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -797,7 +970,8 @@ class SwinIR(nn.Module):
         fusion_kwargs = {
             'B': B, 'T': T, 'D': self.embed_dim, 'H': H, 'W': W,
             'attn_module': self.temporal_attn_module, # 将实例化的模块传入(步骤二需要)
-            'mask': mask # 传递mask用于处理填充的时相
+            'mask': mask, # 传递mask用于处理填充的时相
+            'mask_prob': mask_prob,
         }
         
         # 像插件一样调用选定的聚合函数
@@ -826,6 +1000,10 @@ class SwinIR(nn.Module):
         
         # 7. 最终重建
         x = self.conv_last(x)
+        if self.output_refinement is not None:
+            x = x + self.output_refinement(x)
+        if self.output_affine is not None:
+            x = self.output_affine(x)
 
         if self.spectral_postprocessor is not None:
             x = self.spectral_postprocessor(x)
